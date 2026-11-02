@@ -1,0 +1,142 @@
+:root {
+  --bg: #111214;
+  --panel: #1b1d21;
+  --raised: #262930;
+  --line: #2a2d33;
+  --text: #f2f3f5;
+  --muted: #9aa0a8;
+  --accent: #4f8cff;
+  --danger: #ff6b6b;
+  color-scheme: dark;
+}
+
+* { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+
+html, body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font: 16px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  -webkit-text-size-adjust: 100%;
+}
+
+button, label.btn, input { font: inherit; color: inherit; }
+button { cursor: pointer; }
+button:disabled { opacity: .35; }
+
+/* Nagłówek */
+.top {
+  position: sticky; top: 0; z-index: 5;
+  display: flex; align-items: center; gap: 8px;
+  padding: calc(env(safe-area-inset-top) + 10px) 16px 10px;
+  background: var(--bg);
+  border-bottom: 1px solid var(--line);
+}
+.top h1 {
+  flex: 1; margin: 0; font-size: 20px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.status { font-size: 12px; color: var(--muted); max-width: 50%; text-align: right; }
+.back { font-size: 28px; line-height: 1; padding: 0 8px 4px 0; }
+
+/* Treść */
+main { padding: 8px 16px calc(var(--dock-h, 240px) + 16px); }
+.toolbar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 8px 0 4px; }
+.toolbar .muted { margin-left: auto; }
+.muted { color: var(--muted); font-size: 14px; }
+.center { text-align: center; }
+.empty { color: var(--muted); padding: 24px 4px; }
+
+.btn {
+  display: inline-block; border: 0; border-radius: 10px;
+  padding: 9px 14px; background: var(--raised); font-size: 15px;
+}
+.btn.primary { background: var(--accent); color: #fff; }
+.btn.danger { color: var(--danger); }
+
+.list { list-style: none; margin: 0; padding: 0; }
+.item {
+  display: flex; align-items: center; gap: 4px;
+  border-bottom: 1px solid var(--line);
+}
+.item .main {
+  flex: 1; min-width: 0; display: flex; flex-direction: column;
+  text-align: left; background: none; border: 0; padding: 12px 0;
+}
+.title { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.meta { font-size: 13px; color: var(--muted); }
+.item.current .title { color: var(--accent); font-weight: 600; }
+.item.missing .title { color: var(--muted); text-decoration: line-through; }
+.chev { color: var(--muted); font-size: 22px; padding: 0 4px; }
+
+.icon-btn {
+  background: none; border: 0; color: var(--muted);
+  min-width: 36px; height: 40px; font-size: 18px;
+}
+
+.card {
+  background: var(--panel); border: 1px solid var(--line);
+  border-radius: 14px; padding: 4px 14px 14px; margin: 12px 0;
+}
+.card h2 { font-size: 16px; margin: 12px 0 6px; }
+.card p { margin: 6px 0; }
+.row { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
+.seg { display: flex; gap: 6px; margin-top: 8px; }
+.seg button { flex: 1; border: 1px solid var(--line); background: var(--raised); border-radius: 10px; padding: 9px 6px; font-size: 14px; }
+.seg button.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+.log {
+  background: #0b0c0e; border-radius: 10px; padding: 10px;
+  font: 12px/1.45 ui-monospace, Menlo, monospace; color: #c9ced6;
+  max-height: 260px; overflow: auto; white-space: pre-wrap; margin: 8px 0;
+}
+
+/* Odtwarzacz na dole */
+.dock {
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 10;
+  background: var(--panel); border-top: 1px solid var(--line);
+  padding-bottom: env(safe-area-inset-bottom);
+}
+.player { padding: 10px 16px 6px; }
+.now-title { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.now-sub { font-size: 13px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#seek { width: 100%; margin: 8px 0 0; accent-color: var(--accent); }
+.times { display: flex; justify-content: space-between; font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.controls { display: flex; align-items: center; justify-content: space-between; margin-top: 4px; }
+.controls button { background: none; border: 0; font-size: 22px; min-width: 44px; height: 48px; }
+.controls .skip { font-size: 15px; color: var(--muted); }
+.controls .rate { font-size: 14px; color: var(--muted); }
+.controls .play {
+  width: 56px; height: 56px; border-radius: 50%;
+  background: var(--accent); color: #fff; font-size: 22px;
+}
+
+.tabs { display: flex; border-top: 1px solid var(--line); }
+.tabs button {
+  flex: 1; background: none; border: 0; padding: 10px 0 8px;
+  font-size: 13px; color: var(--muted);
+}
+.tabs button.active { color: var(--accent); font-weight: 600; }
+
+/* Arkusz akcji */
+dialog {
+  border: 0; border-radius: 16px; padding: 10px;
+  background: var(--panel); color: var(--text);
+  width: min(92vw, 420px);
+}
+dialog::backdrop { background: rgba(0, 0, 0, .55); }
+dialog h3 {
+  margin: 6px 6px 10px; font-size: 15px; color: var(--muted); font-weight: 500;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.sheet-btn {
+  display: block; width: 100%; text-align: left;
+  border: 0; border-radius: 10px; background: var(--raised);
+  padding: 13px 14px; margin: 6px 0; font-size: 16px;
+}
+.sheet-btn.danger { color: var(--danger); }
+.sheet-btn.primary { background: var(--accent); color: #fff; text-align: center; }
+.sheet-btn.cancel { text-align: center; color: var(--muted); }
+.checks { max-height: 55vh; overflow: auto; }
+.check { display: flex; align-items: center; gap: 10px; padding: 10px 6px; border-bottom: 1px solid var(--line); }
+.check input { width: 20px; height: 20px; accent-color: var(--accent); flex: none; }
+.check span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
