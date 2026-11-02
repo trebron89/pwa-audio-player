@@ -6,53 +6,80 @@
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-  <meta name="apple-mobile-web-app-title" content="Odtwarzacz">
-  <meta name="theme-color" content="#111214">
-  <title>Odtwarzacz</title>
+  <meta name="apple-mobile-web-app-title" content="NPlayer">
+  <meta name="theme-color" content="#09090e">
+  <title>NPlayer</title>
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="apple-touch-icon" href="icons/icon-180.png">
   <link rel="icon" type="image/png" href="icons/icon-192.png">
   <link rel="stylesheet" href="style.css">
+  <script src="tags.js" defer></script>
+  <script src="app.js" defer></script>
 </head>
 <body>
   <header class="top">
-    <button id="back" class="icon-btn back" hidden aria-label="Wstecz">‹</button>
-    <h1 id="viewTitle">Biblioteka</h1>
+    <button id="back" class="ibtn back" hidden aria-label="Wstecz" data-icon="back"></button>
+    <div class="heading">
+      <span class="brand">NPlayer</span>
+      <h1 id="viewTitle">Biblioteka</h1>
+    </div>
     <span id="status" class="status" aria-live="polite"></span>
   </header>
 
   <main id="main"></main>
 
-  <footer class="dock" id="dock">
-    <section class="player">
-      <div class="now">
-        <div id="nowTitle" class="now-title">Nic nie gra</div>
-        <div id="nowSub" class="now-sub">Wybierz utwór z biblioteki</div>
-      </div>
-      <input id="seek" type="range" min="0" max="1" step="1" value="0" aria-label="Pozycja w utworze">
-      <div class="times"><span id="tCur">0:00</span><span id="tDur">0:00</span></div>
-      <div class="controls">
-        <button id="btnRate" class="rate" aria-label="Prędkość odtwarzania">1×</button>
-        <button id="btnPrev" aria-label="Poprzedni utwór">⏮&#xFE0E;</button>
-        <button id="btnBack" class="skip" aria-label="Cofnij 15 sekund">−15</button>
-        <button id="btnPlay" class="play" aria-label="Odtwarzaj lub pauza">▶&#xFE0E;</button>
-        <button id="btnFwd" class="skip" aria-label="Do przodu 30 sekund">+30</button>
-        <button id="btnNext" aria-label="Następny utwór">⏭&#xFE0E;</button>
-      </div>
-    </section>
+  <footer class="dock no-track" id="dock">
+    <div class="mini" id="mini">
+      <button class="mini-open" id="miniOpen" aria-label="Otwórz odtwarzacz">
+        <div class="art art-sm" id="miniArt"><span>N</span></div>
+        <div class="mini-text">
+          <div id="miniTitle" class="mini-title">Nic nie gra</div>
+          <div id="miniSub" class="mini-sub"></div>
+        </div>
+      </button>
+      <button class="ibtn" id="miniPlay" aria-label="Odtwarzaj lub pauza" data-icon="play"></button>
+      <button class="ibtn" id="miniNext" aria-label="Następny utwór" data-icon="next"></button>
+      <div class="mini-progress"><div id="miniBar"></div></div>
+    </div>
     <nav class="tabs">
-      <button data-view="library" class="active">Biblioteka</button>
-      <button data-view="playlists">Playlisty</button>
-      <button data-view="settings">Ustawienia</button>
+      <button data-view="library" class="active"><i data-icon="lib"></i><span>Biblioteka</span></button>
+      <button data-view="playlists"><i data-icon="lists"></i><span>Playlisty</span></button>
+      <button data-view="settings"><i data-icon="settings"></i><span>Ustawienia</span></button>
     </nav>
   </footer>
 
+  <section id="full" class="full" aria-hidden="true" aria-label="Odtwarzacz">
+    <div class="full-bg" id="fullBg"></div>
+    <div class="full-inner">
+      <div class="full-head">
+        <button id="fullClose" class="ibtn" aria-label="Zamknij odtwarzacz" data-icon="down"></button>
+        <div class="full-from"><small>Odtwarzane z</small><b id="fullSource">Biblioteka</b></div>
+        <button id="fullRate" class="pill-sm" aria-label="Prędkość odtwarzania">1×</button>
+      </div>
+      <div class="full-art-wrap">
+        <div class="art art-xl" id="fullArt"><span>N</span></div>
+      </div>
+      <div class="full-meta">
+        <div id="fullTitle" class="full-title">Nic nie gra</div>
+        <div id="fullSub" class="full-sub"></div>
+      </div>
+      <input id="seek" class="seek" type="range" min="0" max="1" step="1" value="0" aria-label="Pozycja w utworze">
+      <div class="times"><span id="tCur">0:00</span><span id="tLeft">−0:00</span></div>
+      <div class="full-controls">
+        <button id="btnPrev" class="ibtn big" aria-label="Poprzedni utwór" data-icon="prev"></button>
+        <button id="btnPlay" class="playbtn" aria-label="Odtwarzaj lub pauza" data-icon="play"></button>
+        <button id="btnNext" class="ibtn big" aria-label="Następny utwór" data-icon="next"></button>
+      </div>
+      <div class="full-foot" id="fullPos"></div>
+    </div>
+  </section>
+
   <audio id="audio" preload="auto" playsinline></audio>
   <input id="fileInput" type="file" multiple hidden
-         accept="audio/*,.mp3,.m4a,.m4b,.aac,.wav,.aif,.aiff,.caf,.flac,.opus,.ogg">
+         accept="audio/*,image/*,.mp3,.m4a,.m4b,.aac,.wav,.aif,.aiff,.caf,.flac,.opus,.ogg">
+  <input id="folderInput" type="file" multiple hidden webkitdirectory>
+  <input id="coverInput" type="file" hidden accept="image/*">
   <input id="jsonInput" type="file" hidden accept="application/json,.json">
-  <dialog id="sheet"><div id="sheetBody"></div></dialog>
-
-  <script src="app.js"></script>
+  <dialog id="sheet"><div class="grabber"></div><div id="sheetBody"></div></dialog>
 </body>
 </html>

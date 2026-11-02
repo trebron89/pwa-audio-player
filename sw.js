@@ -1,11 +1,12 @@
 // Service worker: zapisuje pliki aplikacji, żeby działała offline.
 // Strategia: najpierw kopia z pamięci, w tle pobranie nowszej wersji
 // (zmiany pojawiają się przy kolejnym uruchomieniu aplikacji).
-const CACHE = 'odtwarzacz-v1';
+const CACHE = 'nplayer-v2';
 const ASSETS = [
   './',
   './index.html',
   './style.css',
+  './tags.js',
   './app.js',
   './manifest.webmanifest',
   './icons/icon-180.png',
