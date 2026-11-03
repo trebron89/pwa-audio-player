@@ -31,7 +31,7 @@
   <footer class="dock no-track" id="dock">
     <div class="mini" id="mini">
       <button class="mini-open" id="miniOpen" aria-label="Otwórz odtwarzacz">
-        <div class="art art-sm" id="miniArt"><span>N</span></div>
+        <div class="art art-sm" id="miniArt" data-icon="note"></div>
         <div class="mini-text">
           <div id="miniTitle" class="mini-title">Nic nie gra</div>
           <div id="miniSub" class="mini-sub"></div>
@@ -57,11 +57,15 @@
         <button id="fullRate" class="pill-sm" aria-label="Prędkość odtwarzania">1×</button>
       </div>
       <div class="full-art-wrap">
-        <div class="art art-xl" id="fullArt"><span>N</span></div>
+        <div class="art art-xl" id="fullArt" data-icon="note"></div>
       </div>
       <div class="full-meta">
         <div id="fullTitle" class="full-title">Nic nie gra</div>
         <div id="fullSub" class="full-sub"></div>
+      </div>
+      <div class="queue" id="queue">
+        <div class="queue-head">Teraz odtwarzane · <b id="queueSrc"></b></div>
+        <ul class="list" id="queueList"></ul>
       </div>
       <input id="seek" class="seek" type="range" min="0" max="1" step="1" value="0" aria-label="Pozycja w utworze">
       <div class="times"><span id="tCur">0:00</span><span id="tLeft">−0:00</span></div>
@@ -70,7 +74,11 @@
         <button id="btnPlay" class="playbtn" aria-label="Odtwarzaj lub pauza" data-icon="play"></button>
         <button id="btnNext" class="ibtn big" aria-label="Następny utwór" data-icon="next"></button>
       </div>
-      <div class="full-foot" id="fullPos"></div>
+      <div class="full-foot">
+        <span class="spacer-btn"></span>
+        <span class="full-pos" id="fullPos"></span>
+        <button id="fullQueue" class="ibtn" aria-label="Teraz odtwarzane" aria-pressed="false" data-icon="queue"></button>
+      </div>
     </div>
   </section>
 

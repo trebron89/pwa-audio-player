@@ -1,6 +1,6 @@
 'use strict';
 
-const VERSION = '2.0.0';
+const VERSION = '2.1.0';
 
 /* =========================================================
    Ikony
@@ -25,6 +25,8 @@ const ICON = {
   dn: st('<path d="M12 5v14M6 13l6 6 6-6"/>'),
   x: st('<path d="M6 6l12 12M18 6L6 18"/>'),
   none: st('<circle cx="12" cy="12" r="8"/><path d="M6.5 17.5l11-11"/>'),
+  note: st('<path d="M10 17.5V5.2l9-2.2v3.2l-9 2.2"/><circle cx="7" cy="17.5" r="3"/>'),
+  queue: st('<path d="M4 6h16M4 11h16M4 16h8"/><path d="M16 13.5v7l5-3.5z" fill="currentColor" stroke="none"/>'),
 };
 
 /* =========================================================
@@ -94,9 +96,10 @@ const state = {
   positions: {},            // id utworu -> sekundy
   queue: [],                // id utworów w bieżącej kolejce
   index: -1,
-  source: null,             // { type: 'library' } | { type: 'playlist', id }
-  view: 'library',          // library | playlists | playlist | settings
+  source: null,             // { type: 'folder', id, name } | { type: 'playlist', id } | { type: 'library' }
+  view: 'library',          // library | folder | playlists | playlist | settings
   openPlaylistId: null,
+  openFolder: null,         // klucz folderu w widoku „folder”
   editing: false,
   settings: { rate: 1, librarySort: 'name-asc', numberMode: 'version' },
 };
@@ -158,12 +161,6 @@ function guessType(name) {
   })[ext] || 'application/octet-stream';
 }
 
-function hue(s) {
-  let h = 0;
-  for (const c of String(s)) h = (h * 31 + c.codePointAt(0)) >>> 0;
-  return h % 360;
-}
-const initial = s => (String(s).trim().match(/[\p{L}\p{N}]/u) || ['♪'])[0].toUpperCase();
 
 const currentId = () => (state.index >= 0 ? state.queue[state.index] : undefined);
 const titleOf = id => (id && state.trackMap.get(id)?.title) || (id ? stripExt(id.split('|')[0]) : '?');
@@ -174,6 +171,7 @@ const existing = p => p.trackIds.filter(id => state.trackMap.has(id));
 
 function sourceName() {
   if (state.source?.type === 'playlist') return getPl(state.source.id)?.name || 'Playlista';
+  if (state.source?.type === 'folder') return state.source.name || 'Biblioteka';
   return 'Biblioteka';
 }
 
@@ -243,6 +241,50 @@ const sortedTracks = () => state.tracks.slice().sort(SORTS[state.settings.librar
 const sortPl = () => state.playlists.sort((a, b) => compareNames(a.name, b.name));
 
 /* =========================================================
+   Foldery biblioteki
+   Klucz: „d:<ścieżka katalogu>” (zapamiętana przy imporcie folderu),
+   „p:<id playlisty>” dla starszych utworów bez folderu, które należą
+   do dokładnie jednej playlisty, oraz „” dla pozostałych („Inne pliki”).
+   ========================================================= */
+const dirOf = f => (f.webkitRelativePath || '').split('/').slice(0, -1).join('/');
+
+function folders() {
+  const plOf = new Map();
+  for (const p of state.playlists) {
+    for (const id of new Set(p.trackIds)) {
+      if (!plOf.has(id)) plOf.set(id, []);
+      plOf.get(id).push(p);
+    }
+  }
+  const groups = new Map();
+  for (const t of state.tracks) {
+    let key = '', name = 'Inne pliki';
+    if (t.folder) {
+      key = 'd:' + t.folder;
+      name = t.folder.split('/').pop();
+    } else {
+      const ps = plOf.get(t.id);
+      if (ps && ps.length === 1) { key = 'p:' + ps[0].id; name = ps[0].name; }
+    }
+    let g = groups.get(key);
+    if (!g) groups.set(key, (g = { key, name, tracks: [] }));
+    g.tracks.push(t);
+  }
+  const sort = SORTS[state.settings.librarySort] || SORTS['name-asc'];
+  const list = [...groups.values()];
+  list.forEach(g => g.tracks.sort(sort));
+  return list.sort((a, b) => (a.key === '') - (b.key === '') || compareNames(a.name, b.name));
+}
+const getFolder = key => folders().find(g => g.key === key);
+const folderOfTrack = id => folders().find(g => g.tracks.some(t => t.id === id));
+
+function playFolder(g, id) {
+  if (!g) return;
+  const ids = g.tracks.map(t => t.id);
+  playFrom(ids, id ? Math.max(0, ids.indexOf(id)) : 0, { type: 'folder', id: g.key, name: g.name });
+}
+
+/* =========================================================
    Okładki
    Klucze w magazynie „art”: „tr:<id utworu>” (z tagów), „pl:<id playlisty>”.
    ========================================================= */
@@ -296,12 +338,12 @@ function nowArtKey() {
   return trackArtKey(id);
 }
 
-function artHtml(key, label, cls = '') {
-  return `<div class="art ${cls}"${key ? ` data-art="${esc(key)}"` : ''} style="--h:${hue(label)}"><span>${esc(initial(label))}</span></div>`;
+function artHtml(key, cls = '', glyph = 'note') {
+  return `<div class="art ${cls}"${key ? ` data-art="${esc(key)}"` : ''}>${ICON[glyph] || ''}</div>`;
 }
-const trackArt = (t, cls = 'art-md') => artHtml(t.hasArt ? 'tr:' + t.id : null, t.title, cls);
+const trackArt = (t, cls = 'art-md') => artHtml(t.hasArt ? 'tr:' + t.id : null, cls);
 
-let artObserver = null;
+const artObservers = new Map(); // kontener przewijania -> IntersectionObserver
 async function loadArtEl(el) {
   const url = await artUrl(el.dataset.art);
   if (url) {
@@ -309,17 +351,19 @@ async function loadArtEl(el) {
     el.classList.add('loaded');
   }
 }
-function hydrateArt(root) {
+function hydrateArt(root, scroller = main) {
   const els = root.querySelectorAll('[data-art]:not(.loaded)');
   if (!('IntersectionObserver' in window)) { els.forEach(loadArtEl); return; }
-  if (!artObserver) {
-    artObserver = new IntersectionObserver(entries => {
+  let obs = artObservers.get(scroller);
+  if (!obs) {
+    obs = new IntersectionObserver((entries, o) => {
       for (const e of entries) {
-        if (e.isIntersecting) { artObserver.unobserve(e.target); loadArtEl(e.target); }
+        if (e.isIntersecting) { o.unobserve(e.target); loadArtEl(e.target); }
       }
-    }, { rootMargin: '400px' });
+    }, { root: scroller, rootMargin: '400px' });
+    artObservers.set(scroller, obs);
   }
-  els.forEach(el => artObserver.observe(el));
+  els.forEach(el => obs.observe(el));
 }
 
 /* Zmniejsza obraz do kwadratu (środek) i zapisuje jako JPEG. */
@@ -441,9 +485,14 @@ async function importSelection(fileList, fromFolder) {
     setStatus(`Wczytywanie ${i + 1}/${audios.length}…`, true);
     const id = `${f.name}|${f.size}`;
     const known = state.trackMap.get(id);
+    const dir = dirOf(f);
     if (known) {
       ids.push(id);
       existed++;
+      if (dir && !known.folder) {
+        known.folder = dir;
+        await idb.put('tracks', known).catch(() => {});
+      }
       if (known.hasArt && !artTrack) artTrack = id;
       continue;
     }
@@ -468,7 +517,7 @@ async function importSelection(fileList, fromFolder) {
         id, name: f.name, type, size: f.size, duration: 0, added: Date.now() + i,
         title: tags.title || stripExt(f.name), tagTitle: tags.title || '',
         artist: tags.artist || '', album: tags.album || '', trackNo: parseInt(tags.track, 10) || 0,
-        hasArt: !!art,
+        hasArt: !!art, folder: dir,
       };
       await saveTrack(meta, blob, art);
       state.tracks.push(meta);
@@ -511,7 +560,7 @@ function offerPlaylist({ ids, name, images, artTrack }) {
   const optHtml = (o, i) => {
     let pic;
     if (o.kind === 'img') pic = `<img src="${o.url}" alt="">`;
-    else if (o.kind === 'tag') pic = artHtml('tr:' + o.track, titleOf(o.track));
+    else if (o.kind === 'tag') pic = artHtml('tr:' + o.track);
     else pic = `<div class="art none">${ICON.none}</div>`;
     return `<button type="button" class="cover-opt${i === sel ? ' sel' : ''}" data-i="${i}">${pic}<span class="lbl">${esc(o.label)}</span></button>`;
   };
@@ -524,7 +573,7 @@ function offerPlaylist({ ids, name, images, artTrack }) {
     <div class="field"><span>Okładka</span><div class="covers">${opts.map(optHtml).join('')}</div></div>
     <button class="sheet-btn primary" data-ok>Zapisz playlistę</button>
     <button class="sheet-btn cancel" data-cancel>Tylko do biblioteki</button>`;
-  hydrateArt(sheetBody);
+  hydrateArt(sheetBody, sheetEl);
 
   onSheetClose = () => opts.forEach(o => o.url && URL.revokeObjectURL(o.url));
   sheetBody.onclick = async e => {
@@ -553,7 +602,7 @@ function offerPlaylist({ ids, name, images, artTrack }) {
     state.view = 'playlist';
     state.editing = false;
     render();
-    window.scrollTo(0, 0);
+    main.scrollTop = 0;
     setStatus('Zapisano playlistę');
   };
   sheetEl.showModal();
@@ -624,6 +673,7 @@ async function loadTrack(i, autoplay) {
   loadedId = id;
   pendingSeek = state.positions[id] || 0;
   audio.src = url;
+  registerMediaActions();
   audio.defaultPlaybackRate = state.settings.rate;
   audio.playbackRate = state.settings.rate;
 
@@ -664,7 +714,7 @@ function playFrom(ids, i, source) {
 
 function playPause(forcePlay) {
   if (state.index < 0 || !state.queue.length) {
-    if (state.tracks.length) playFrom(sortedTracks().map(t => t.id), 0, { type: 'library' });
+    if (state.tracks.length) playFolder(folders()[0]);
     return;
   }
   if (!loaded()) { loadTrack(state.index, true); return; }
@@ -715,6 +765,7 @@ audio.addEventListener('play', () => {
 audio.addEventListener('playing', () => {
   if (isSilent()) return;
   log('gra: ' + titleOf(currentId()));
+  registerMediaActions();
   prefetchNext();
   updatePositionState();
 });
@@ -769,19 +820,34 @@ document.addEventListener('visibilitychange', () => {
 window.addEventListener('pagehide', savePosition);
 
 /* =========================================================
-   Ekran blokady (Media Session) – tylko poprzedni / następny
+   Ekran blokady (Media Session): poprzedni / play-pauza / następny
+   iOS pokazuje przyciski ±10 s, gdy nie widzi obsługi poprzedniego /
+   następnego utworu – np. po zmianie źródła <audio>. Dlatego obsługa
+   jest rejestrowana ponownie przy każdym utworze i przy starcie odtwarzania.
+   Poprzedni / następny nigdy nie są zerowane (nawet na końcu kolejki).
    ========================================================= */
+const mediaActions = [
+  ['play', () => playPause(true)],
+  ['pause', () => audio.pause()],
+  ['previoustrack', () => prev()],
+  ['nexttrack', () => next()],
+  ['seekto', d => { if (loaded() && d.seekTime != null) audio.currentTime = d.seekTime; }],
+  ['seekbackward', null],
+  ['seekforward', null],
+];
+
+function registerMediaActions() {
+  if (!('mediaSession' in navigator)) return [];
+  const ok = [];
+  for (const [action, fn] of mediaActions) {
+    try { navigator.mediaSession.setActionHandler(action, fn); if (fn) ok.push(action); } catch { /* nieobsługiwane */ }
+  }
+  return ok;
+}
+
 function setupMediaSession() {
-  if (!('mediaSession' in navigator)) return;
-  const ms = navigator.mediaSession;
-  const h = (action, fn) => { try { ms.setActionHandler(action, fn); } catch { /* nieobsługiwane */ } };
-  h('play', () => playPause(true));
-  h('pause', () => audio.pause());
-  h('previoustrack', prev);
-  h('nexttrack', next);
-  h('seekto', d => { if (loaded() && d.seekTime != null) audio.currentTime = d.seekTime; });
-  h('seekbackward', null);
-  h('seekforward', null);
+  const ok = registerMediaActions();
+  log('ekran blokady: ' + (ok.length ? ok.join(', ') : 'brak Media Session'));
 }
 
 function updateMediaSession() {
@@ -858,6 +924,7 @@ function updatePlayerUI() {
   $('#btnPrev').disabled = !t;
   $('#btnNext').disabled = atEnd;
   $('#miniNext').disabled = atEnd;
+  $('#fullQueue').disabled = !t;
 }
 
 async function updatePlayerArt() {
@@ -866,16 +933,12 @@ async function updatePlayerArt() {
   const sig = key + '|' + id;
   if (sig === shownArtSig) return;
   shownArtSig = sig;
-  const label = id ? titleOf(id) : 'N';
   const url = key ? await artUrl(key) : null;
   if (shownArtSig !== sig) return;
   for (const el of [$('#miniArt'), $('#fullArt')]) {
-    el.style.setProperty('--h', hue(label));
-    el.querySelector('span').textContent = initial(label);
     el.style.backgroundImage = url ? `url("${url}")` : '';
     el.classList.toggle('loaded', !!url);
   }
-  full.style.setProperty('--h', hue(label));
   $('#fullBg').style.backgroundImage = url ? `url("${url}")` : '';
 }
 
@@ -886,6 +949,7 @@ function openFull() {
   document.body.classList.add('full-open');
 }
 function closeFull() {
+  toggleQueue(false);
   full.classList.remove('open');
   full.setAttribute('aria-hidden', 'true');
   document.body.classList.remove('full-open');
@@ -923,11 +987,64 @@ $('#btnNext').addEventListener('click', next);
 $('#miniNext').addEventListener('click', next);
 $('#miniOpen').addEventListener('click', openFull);
 $('#fullClose').addEventListener('click', closeFull);
+$('#fullQueue').addEventListener('click', () => toggleQueue());
+
+/* Panel „Teraz odtwarzane” – bieżąca kolejka (folder lub playlista) */
+let queueOpen = false;
+let queueSig = null;
+const queueList = $('#queueList');
+
+function toggleQueue(force) {
+  queueOpen = force === undefined ? !queueOpen : !!force;
+  full.classList.toggle('queue-open', queueOpen);
+  $('#fullQueue').classList.toggle('on', queueOpen);
+  $('#fullQueue').setAttribute('aria-pressed', String(queueOpen));
+  if (queueOpen) renderQueue(true);
+}
+
+function renderQueue(center) {
+  if (!queueOpen) return;
+  $('#queueSrc').textContent = sourceName();
+  const sig = state.queue.join('\n');
+  if (sig !== queueSig) {
+    queueSig = sig;
+    queueList.innerHTML = state.queue.map((id, i) => {
+      const t = state.trackMap.get(id);
+      const meta = t ? [t.artist, t.duration ? fmt(t.duration) : null].filter(Boolean).join(' · ') : '';
+      return `<li class="item" data-qi="${i}">
+        <button class="main" data-qi="${i}"><span class="num">${i + 1}</span>${eqHtml}${t ? trackArt(t, 'art-sm') : artHtml(null, 'art-sm')}
+          <span class="txt"><span class="title">${esc(titleOf(id))}</span>${meta ? `<span class="meta">${esc(meta)}</span>` : ''}</span>
+        </button></li>`;
+    }).join('');
+    artObservers.get(queueList)?.disconnect();
+    hydrateArt(queueList, queueList);
+    center = true;
+  }
+  let cur = null;
+  queueList.querySelectorAll('.item').forEach(el => {
+    const on = +el.dataset.qi === state.index;
+    el.classList.toggle('current', on);
+    if (on) cur = el;
+  });
+  if (!cur) return;
+  const top = cur.offsetTop, h = cur.offsetHeight, view = queueList.clientHeight;
+  if (center) queueList.scrollTop = top - (view - h) / 2;
+  else if (top < queueList.scrollTop || top + h > queueList.scrollTop + view) queueList.scrollTop = top - (view - h) / 2;
+}
+
+queueList.addEventListener('click', e => {
+  const b = e.target.closest('button[data-qi]');
+  if (!b) return;
+  const i = +b.dataset.qi;
+  if (i === state.index && loaded()) { if (audio.paused) playPause(true); return; }
+  clearPrefetch();
+  loadTrack(i, true);
+});
 
 // Przeciągnięcie w dół zamyka pełny odtwarzacz.
 let touchY = null;
 full.addEventListener('touchstart', e => {
-  touchY = e.target.closest('input, button') ? null : e.touches[0].clientY;
+  touchY = e.target.closest('input, button, .queue') ? null : e.touches[0].clientY;
 }, { passive: true });
 full.addEventListener('touchend', e => {
   if (touchY !== null && e.changedTouches[0].clientY - touchY > 90) closeFull();
@@ -938,6 +1055,7 @@ full.addEventListener('touchend', e => {
    Arkusze akcji
    ========================================================= */
 sheetEl.addEventListener('close', () => {
+  resetViewport();
   const f = onSheetClose;
   onSheetClose = null;
   if (f) f();
@@ -975,7 +1093,7 @@ function libMenu(t) {
         state.positions[t.id] = 0;
         persistPositions();
         if (loadedId === t.id && loaded()) { audio.currentTime = 0; audio.play().catch(() => {}); }
-        else { const ids = sortedTracks().map(x => x.id); playFrom(ids, ids.indexOf(t.id), { type: 'library' }); }
+        else playFolder(folderOfTrack(t.id), t.id);
         render();
       },
     },
@@ -1038,6 +1156,7 @@ function plMenu(p) {
       label: 'Zmień nazwę…',
       fn: async () => {
         const name = prompt('Nowa nazwa:', p.name);
+        resetViewport();
         if (!name || !name.trim()) return;
         p.name = name.trim();
         await savePl(p);
@@ -1096,6 +1215,7 @@ async function createPlaylist(name, ids, cover) {
 
 function newPlaylist(then) {
   const name = prompt('Nazwa playlisty:');
+  resetViewport();
   if (!name || !name.trim()) return;
   createPlaylist(name.trim(), [], null).then(p => (then ? then(p) : render()));
 }
@@ -1134,6 +1254,7 @@ function syncQueueWithPlaylist(p) {
   state.index = ni;
   saveLast();
   updatePlayerUI();
+  renderQueue();
   if (!audio.paused) prefetchNext();
 }
 
@@ -1160,6 +1281,7 @@ async function deleteTrack(id) {
   persistPositions();
   if (prefetched && prefetched.id === id) clearPrefetch();
 
+  if (state.source?.type === 'folder' && !getFolder(state.source.id)) state.source = { type: 'library' };
   if (state.queue.includes(id)) {
     const cur = currentId();
     if (cur === id) {
@@ -1250,11 +1372,13 @@ const FOLDER_OK = 'webkitdirectory' in document.createElement('input');
 const eqHtml = '<span class="eq"><i></i><i></i><i></i></span>';
 
 function render() {
-  const tab = state.view === 'playlist' ? 'playlists' : state.view;
+  const tab = state.view === 'playlist' ? 'playlists' : state.view === 'folder' ? 'library' : state.view;
   document.querySelectorAll('.tabs button').forEach(b => b.classList.toggle('active', b.dataset.view === tab));
-  $('#back').hidden = state.view !== 'playlist';
-  if (artObserver) artObserver.disconnect();
+  $('#back').hidden = state.view !== 'playlist' && state.view !== 'folder';
+  artObservers.get(main)?.disconnect();
+  main.dataset.scope = '';
   if (state.view === 'library') renderLibrary();
+  else if (state.view === 'folder') renderFolder();
   else if (state.view === 'playlists') renderPlaylists();
   else if (state.view === 'playlist') renderPlaylist();
   else { renderSettings(); return; }
@@ -1262,12 +1386,16 @@ function render() {
   hydrateArt(main);
 }
 
+const scopeOf = src => (src?.type === 'playlist' ? 'p:' + src.id : src?.type === 'folder' ? 'f:' + src.id : '');
+
 function markCurrent() {
   const id = currentId();
   const src = state.source;
-  const inScope = (state.view === 'library' && src?.type === 'library')
-    || (state.view === 'playlist' && src?.type === 'playlist' && src.id === state.openPlaylistId);
+  const inScope = (state.view === 'playlist' && src?.type === 'playlist' && src.id === state.openPlaylistId)
+    || (!!main.dataset.scope && main.dataset.scope === scopeOf(src));
   main.querySelectorAll('.item[data-id]').forEach(el => el.classList.toggle('current', inScope && el.dataset.id === id));
+  main.querySelectorAll('.item[data-folder]').forEach(el => el.classList.toggle('current', !!id && src?.type === 'folder' && src.id === el.dataset.folder));
+  renderQueue();
 }
 
 function trackInfo(t) {
@@ -1276,33 +1404,66 @@ function trackInfo(t) {
   return parts.length ? parts.join(' · ') : fmtSize(t.size);
 }
 
+const sortBtn = () => `<button class="btn ghost" data-act="lib-sort">${ICON.sort}${esc(SORT_LABELS[state.settings.librarySort] || '')}</button>`;
+
+const trackListHtml = tracks => '<ul class="list">' + tracks.map(t => `
+    <li class="item" data-id="${esc(t.id)}">
+      <button class="main" data-act="play-track">${trackArt(t)}
+        <span class="txt"><span class="title">${esc(t.title)}</span><span class="meta">${esc(trackInfo(t))}</span></span>
+      </button>${eqHtml}
+      <button class="ibtn more" data-act="menu-lib" aria-label="Więcej">${ICON.more}</button>
+    </li>`).join('') + '</ul>';
+
 function renderLibrary() {
   $('#viewTitle').textContent = 'Biblioteka';
-  const list = sortedTracks();
   const total = state.tracks.reduce((a, t) => a + t.size, 0);
+  const groups = folders();
   const folderBtn = FOLDER_OK ? `<label class="btn" for="folderInput">${ICON.folder}Folder</label>` : '';
   let html = `<div class="toolbar">
       <label class="btn primary" for="fileInput">${ICON.plus}Pliki</label>${folderBtn}
       <span class="spacer"></span>
-      ${list.length ? `<button class="btn ghost" data-act="lib-sort">${ICON.sort}${esc(SORT_LABELS[state.settings.librarySort] || '')}</button>` : ''}
+      ${state.tracks.length ? sortBtn() : ''}
     </div>`;
-  if (!list.length) {
+  if (!state.tracks.length) {
     html += `<div class="empty">
         <div class="glyph">${ICON.lib}</div>
         <b>Biblioteka jest pusta</b>
         <p>Wczytaj pliki albo cały folder z aplikacji Pliki. Zostaną skopiowane do pamięci aplikacji i będą działać offline.</p>
       </div>`;
-  } else {
-    html += `<p class="count">${list.length} utw. · ${fmtSize(total)}</p>`;
+    main.innerHTML = html;
+    return;
   }
-  html += '<ul class="list">' + list.map(t => `
-    <li class="item" data-id="${esc(t.id)}">
-      <button class="main" data-act="play-lib">${trackArt(t)}
-        <span class="txt"><span class="title">${esc(t.title)}</span><span class="meta">${esc(trackInfo(t))}</span></span>
+  html += `<p class="count">${groups.length > 1 ? `Foldery: ${groups.length} · ` : ''}${state.tracks.length} utw. · ${fmtSize(total)}</p>`;
+  if (groups.length === 1) {
+    // Jeden folder – od razu lista utworów.
+    main.dataset.scope = 'f:' + groups[0].key;
+    html += trackListHtml(groups[0].tracks);
+  } else {
+    html += '<ul class="list">' + groups.map(g => {
+      const withArt = g.tracks.find(t => t.hasArt);
+      const dur = g.tracks.reduce((a, t) => a + (t.duration || 0), 0);
+      return `
+    <li class="item" data-folder="${esc(g.key)}">
+      <button class="main" data-act="open-folder">${artHtml(withArt ? 'tr:' + withArt.id : null, 'art-md', 'folder')}
+        <span class="txt"><span class="title">${esc(g.name)}</span><span class="meta">${g.tracks.length} utw.${dur ? ' · ' + fmtLong(dur) : ''}</span></span>
       </button>${eqHtml}
-      <button class="ibtn more" data-act="menu-lib" aria-label="Więcej">${ICON.more}</button>
-    </li>`).join('') + '</ul>';
+    </li>`;
+    }).join('') + '</ul>';
+  }
   main.innerHTML = html;
+}
+
+function renderFolder() {
+  const g = getFolder(state.openFolder);
+  if (!g) { state.view = 'library'; render(); return; }
+  $('#viewTitle').textContent = g.name;
+  main.dataset.scope = 'f:' + g.key;
+  const size = g.tracks.reduce((a, t) => a + t.size, 0);
+  main.innerHTML = `<div class="toolbar">
+      <button class="btn primary" data-act="play-folder">${ICON.play}Odtwórz</button>
+      <span class="spacer"></span>${sortBtn()}
+    </div>
+    <p class="count">${g.tracks.length} utw. · ${fmtSize(size)}</p>` + trackListHtml(g.tracks);
 }
 
 function renderPlaylists() {
@@ -1311,7 +1472,7 @@ function renderPlaylists() {
       <button class="tile tile-new" data-act="new-pl"><div class="art">${ICON.plus}</div><b>Nowa playlista</b><small>&nbsp;</small></button>`;
   html += state.playlists.map(p => `
       <button class="tile" data-act="open-pl" data-pid="${esc(p.id)}">
-        ${artHtml(playlistArtKey(p), p.name)}
+        ${artHtml(playlistArtKey(p), '', 'lists')}
         <b>${esc(p.name)}</b><small>${p.trackIds.length} utw.</small>
       </button>`).join('');
   html += '</div>';
@@ -1329,7 +1490,7 @@ function renderPlaylist() {
   const dur = known.reduce((a, id) => a + (state.trackMap.get(id).duration || 0), 0);
   const n = p.trackIds.length;
   let html = `<div class="hero">
-      ${artHtml(playlistArtKey(p), p.name)}
+      ${artHtml(playlistArtKey(p), '', 'lists')}
       <h2>${esc(p.name)}</h2>
       <p class="meta">${n} utw.${dur ? ' · ' + fmtLong(dur) : ''}</p>
       <div class="row">
@@ -1347,7 +1508,7 @@ function renderPlaylist() {
       <button class="ibtn sm" data-act="pl-remove" aria-label="Usuń z playlisty">${ICON.x}</button>` : '';
     if (!t) {
       return `<li class="item missing" data-i="${i}"><div class="main"><span class="num">${i + 1}</span>
-        ${artHtml(null, id, 'art-sm')}<span class="txt"><span class="title">${esc(stripExt(id.split('|')[0]))}</span>
+        ${artHtml(null, 'art-sm')}<span class="txt"><span class="title">${esc(stripExt(id.split('|')[0]))}</span>
         <span class="meta">brak pliku w bibliotece – dodaj go ponownie</span></span></div>${tools}</li>`;
     }
     return `<li class="item" data-id="${esc(id)}" data-i="${i}">
@@ -1417,11 +1578,20 @@ main.addEventListener('click', e => {
   const id = item?.dataset.id;
   const i = item ? Number(item.dataset.i) : -1;
   switch (act) {
-    case 'play-lib': {
-      const ids = sortedTracks().map(t => t.id);
-      playFrom(ids, ids.indexOf(id), { type: 'library' });
+    case 'play-track': {
+      const scope = main.dataset.scope || '';
+      if (scope.startsWith('f:')) playFolder(getFolder(scope.slice(2)), id);
       break;
     }
+    case 'open-folder':
+      state.openFolder = item.dataset.folder;
+      state.view = 'folder';
+      render();
+      main.scrollTop = 0;
+      break;
+    case 'play-folder':
+      playFolder(getFolder(state.openFolder));
+      break;
     case 'menu-lib':
       libMenu(state.trackMap.get(id));
       break;
@@ -1436,7 +1606,7 @@ main.addEventListener('click', e => {
       state.view = 'playlist';
       state.editing = false;
       render();
-      window.scrollTo(0, 0);
+      main.scrollTop = 0;
       break;
     case 'play-pl': {
       const p = openPl();
@@ -1506,9 +1676,14 @@ document.querySelector('.tabs').addEventListener('click', e => {
   state.view = b.dataset.view;
   state.editing = false;
   render();
-  window.scrollTo(0, 0);
+  main.scrollTop = 0;
 });
-$('#back').addEventListener('click', () => { state.view = 'playlists'; state.editing = false; render(); });
+$('#back').addEventListener('click', () => {
+  state.view = state.view === 'folder' ? 'library' : 'playlists';
+  state.editing = false;
+  render();
+  main.scrollTop = 0;
+});
 
 $('#fileInput').addEventListener('change', async e => {
   const files = [...e.target.files];
@@ -1534,6 +1709,16 @@ $('#jsonInput').addEventListener('change', async e => {
   e.target.value = '';
   if (f) await importJson(f);
 });
+
+/* iOS po zamknięciu klawiatury potrafi zostawić przesunięty widok – przywracamy go. */
+function resetViewport() {
+  if (window.scrollY || document.documentElement.scrollTop || document.body.scrollTop) {
+    window.scrollTo(0, 0);
+    document.body.scrollTop = 0;
+  }
+}
+document.addEventListener('focusout', () => setTimeout(resetViewport, 60));
+if (window.visualViewport) window.visualViewport.addEventListener('resize', () => setTimeout(resetViewport, 60));
 
 const setDockH = () => document.documentElement.style.setProperty('--dock-h', dock.offsetHeight + 'px');
 if ('ResizeObserver' in window) new ResizeObserver(setDockH).observe(dock);
@@ -1569,7 +1754,9 @@ async function init() {
       state.queue = last.queue.filter(id => state.trackMap.has(id));
       const ni = state.queue.indexOf(wanted);
       state.index = state.queue.length ? (ni >= 0 ? ni : 0) : -1;
-      state.source = last.source && (last.source.type !== 'playlist' || getPl(last.source.id)) ? last.source : { type: 'library' };
+      const src = last.source;
+      const valid = src && (src.type === 'playlist' ? !!getPl(src.id) : src.type === 'folder' ? !!getFolder(src.id) : true);
+      state.source = valid ? src : { type: 'library' };
     }
   } catch (e) {
     log('błąd bazy danych: ' + (e && e.name));

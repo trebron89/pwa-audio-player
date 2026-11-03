@@ -12,7 +12,9 @@ Odtwarzacz plików audio zapisanych na iPhonie. Działa offline, bez Maca, bez k
   - **wersja** (domyślnie): 1.2 → 1.9 → 1.10 → 2,
   - **liczba dziesiętna**: 1.10 → 1.2 → 1.9 → 2.
   Tryb zmienia się w Ustawieniach. Playlistę można posortować z jej menu ⋯.
-- Playlisty, zapamiętywanie miejsca przerwania, prędkość odtwarzania, przyciski na ekranie blokady (poprzedni / następny), pełnoekranowy odtwarzacz (dotknij mini-odtwarzacza, zamknij przeciągnięciem w dół).
+- **Biblioteka w folderach**: utwory są grupowane wg folderu, z którego zostały wczytane. Odtwarzanie z folderu ustawia kolejkę tylko z tego folderu. Pliki wczytane przed wersją 2.1 trafiają do folderu playlisty, do której należą, albo do „Inne pliki” – ponowne wczytanie folderu przypisze je właściwie.
+- **Teraz odtwarzane**: przycisk listy w prawym dolnym rogu pełnego odtwarzacza pokazuje bieżącą kolejkę (folder lub playlistę); dotknięcie utworu przełącza na niego.
+- Playlisty, zapamiętywanie miejsca przerwania, prędkość odtwarzania, przyciski na ekranie blokady (poprzedni / play-pauza / następny, bez ±10 s), pełnoekranowy odtwarzacz (dotknij mini-odtwarzacza, zamknij przeciągnięciem w dół).
 - Kopia zapasowa playlist do pliku JSON i dziennik diagnostyczny.
 
 ## Wdrożenie na GitHub Pages (tylko przeglądarka)

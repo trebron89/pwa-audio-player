@@ -26,7 +26,10 @@ html, body {
   -webkit-font-smoothing: antialiased;
   -webkit-text-size-adjust: 100%;
 }
-body.full-open { overflow: hidden; }
+/* Układ „app-shell”: dokument się nie przewija, przewija się tylko <main>.
+   Dzięki temu iOS (klawiatura, odbicie przewijania) nie przesuwa dolnego paska. */
+html, body { height: 100%; overflow: hidden; overscroll-behavior: none; }
+body { position: fixed; inset: 0; display: flex; flex-direction: column; }
 
 button, input, label.btn { font: inherit; color: inherit; }
 button { cursor: pointer; }
@@ -37,7 +40,7 @@ i[data-icon] { display: block; }
 
 /* ---------- Nagłówek ---------- */
 .top {
-  position: sticky; top: 0; z-index: 5;
+  flex: none; position: relative; z-index: 5;
   display: flex; align-items: center; gap: 4px;
   padding: calc(env(safe-area-inset-top) + 10px) 16px 10px;
   background: rgba(9, 9, 14, .82);
@@ -57,7 +60,10 @@ i[data-icon] { display: block; }
 .back { margin-left: -10px; }
 
 /* ---------- Treść ---------- */
-main { padding: 6px 16px calc(var(--dock-h, 140px) + 24px); }
+main {
+  flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; -webkit-overflow-scrolling: touch;
+  padding: 6px 16px calc(var(--dock-h, 140px) + 24px);
+}
 .toolbar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 6px 0 12px; }
 .spacer { flex: 1; }
 .count { color: var(--muted); font-size: 13px; margin: 0 0 4px; }
@@ -78,14 +84,15 @@ main { padding: 6px 16px calc(var(--dock-h, 140px) + 24px); }
 /* ---------- Okładki ---------- */
 .art {
   flex: none; position: relative; display: grid; place-items: center; overflow: hidden;
-  border-radius: 10px; color: rgba(255, 255, 255, .6); font-weight: 800;
-  background: linear-gradient(135deg, hsl(var(--h, 255) 68% 54%), hsl(calc(var(--h, 255) + 48) 72% 30%));
-  background-size: cover; background-position: center;
+  border-radius: 10px; color: var(--dim);
+  background: var(--surface-2) center / cover no-repeat;
+  box-shadow: inset 0 0 0 1px var(--line);
 }
-.art.loaded { background: var(--surface-2) center / cover no-repeat; }
+.art > svg { width: 44%; height: 44%; }
+.art.loaded { box-shadow: none; }
 .art.loaded > span, .art.loaded > svg { display: none; }
-.art-sm { width: 44px; height: 44px; font-size: 18px; border-radius: 9px; }
-.art-md { width: 50px; height: 50px; font-size: 20px; }
+.art-sm { width: 44px; height: 44px; border-radius: 9px; }
+.art-md { width: 50px; height: 50px; }
 
 /* ---------- Listy ---------- */
 .list { list-style: none; margin: 0; padding: 0; }
@@ -101,8 +108,7 @@ main { padding: 6px 16px calc(var(--dock-h, 140px) + 24px); }
 .item.current .title { background: var(--grad); -webkit-background-clip: text; background-clip: text; color: transparent; }
 .item.missing .title { color: var(--dim); text-decoration: line-through; }
 .num { width: 22px; flex: none; text-align: center; color: var(--dim); font-size: 14px; font-variant-numeric: tabular-nums; }
-.plist .item::after { left: 90px; }
-.item.current .num { display: none; }
+.plist .item::after, .item.current .num { display: none; }
 .ibtn {
   flex: none; display: grid; place-items: center; width: 44px; height: 44px;
   background: none; border: 0; border-radius: 50%; padding: 0; color: var(--text);
@@ -135,16 +141,16 @@ body.is-playing .eq i { animation: eq .9s ease-in-out infinite alternate; }
 /* ---------- Siatka playlist ---------- */
 .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 18px 14px; margin-top: 6px; }
 .tile { min-width: 0; display: flex; flex-direction: column; gap: 4px; background: none; border: 0; padding: 0; text-align: left; }
-.tile .art { width: 100%; aspect-ratio: 1; border-radius: 16px; font-size: 52px; margin-bottom: 4px; box-shadow: 0 14px 30px -16px rgba(0, 0, 0, .9); }
+.tile .art { width: 100%; aspect-ratio: 1; border-radius: 16px; margin-bottom: 4px; box-shadow: 0 14px 30px -16px rgba(0, 0, 0, .9); }
 .tile-new .art { background: var(--surface); box-shadow: inset 0 0 0 1.5px rgba(255, 255, 255, .12); color: var(--muted); }
-.tile-new .art svg { width: 38px; height: 38px; }
+.tile-new .art svg { width: 30%; height: 30%; }
 .tile b { font-size: 15px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .tile small { font-size: 13px; color: var(--muted); }
 .tile:active .art { transform: scale(.97); }
 
 /* ---------- Widok playlisty ---------- */
 .hero { display: flex; flex-direction: column; align-items: center; text-align: center; gap: 6px; padding: 6px 0 18px; }
-.hero .art { width: min(58vw, 230px); aspect-ratio: 1; border-radius: 20px; font-size: 80px; box-shadow: 0 28px 56px -22px rgba(0, 0, 0, .95); margin-bottom: 10px; }
+.hero .art { width: min(58vw, 230px); aspect-ratio: 1; border-radius: 20px; box-shadow: 0 28px 56px -22px rgba(0, 0, 0, .95); margin-bottom: 10px; }
 .hero h2 { margin: 0; font-size: 23px; font-weight: 800; letter-spacing: -.02em; }
 .hero .meta { margin: 0 0 10px; }
 .row { display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; }
@@ -171,7 +177,7 @@ body.is-playing .eq i { animation: eq .9s ease-in-out infinite alternate; }
 
 /* ---------- Dolny pasek ---------- */
 .dock {
-  position: fixed; left: 0; right: 0; bottom: 0; z-index: 10;
+  position: absolute; left: 0; right: 0; bottom: 0; z-index: 10;
   padding: 10px 10px env(safe-area-inset-bottom);
   background: linear-gradient(to top, var(--bg) 62%, rgba(9, 9, 14, 0));
 }
@@ -211,8 +217,8 @@ body.is-playing .eq i { animation: eq .9s ease-in-out infinite alternate; }
 .full-bg {
   position: absolute; inset: -25%;
   background:
-    radial-gradient(circle at 30% 25%, hsl(var(--h, 255) 70% 45%), transparent 55%),
-    radial-gradient(circle at 75% 65%, hsl(calc(var(--h, 255) + 60) 70% 35%), transparent 55%),
+    radial-gradient(circle at 30% 25%, #2c2b3a, transparent 55%),
+    radial-gradient(circle at 75% 65%, #1d1c28, transparent 55%),
     var(--bg);
   background-size: cover; background-position: center;
   filter: blur(60px) saturate(1.5); opacity: .7;
@@ -235,7 +241,7 @@ body.is-playing .eq i { animation: eq .9s ease-in-out infinite alternate; }
 .pill-sm { border: 0; border-radius: 999px; background: rgba(255, 255, 255, .1); padding: 6px 12px; min-width: 52px; font-size: 13px; font-weight: 750; }
 .full-art-wrap { flex: 1; min-height: 0; width: 100%; display: grid; place-items: center; padding: 18px 0; }
 .art-xl {
-  width: min(100%, 44vh, 380px); aspect-ratio: 1; border-radius: 20px; font-size: 110px;
+  width: min(100%, 44vh, 380px); aspect-ratio: 1; border-radius: 20px;
   box-shadow: 0 34px 70px -24px rgba(0, 0, 0, .95);
   transition: transform .45s cubic-bezier(.2, .8, .2, 1);
 }
@@ -270,7 +276,21 @@ body:not(.is-playing) .art-xl { transform: scale(.86); }
   transition: transform .15s;
 }
 .playbtn svg { width: 36px; height: 36px; }
-.full-foot { color: rgba(245, 244, 250, .5); font-size: 13px; font-variant-numeric: tabular-nums; min-height: 1.2em; }
+.full-foot { width: 100%; display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.full-foot .ibtn { color: rgba(245, 244, 250, .6); border-radius: 12px; }
+.full-foot .ibtn svg { width: 24px; height: 24px; }
+.full-foot .ibtn.on { color: var(--text); background: rgba(255, 255, 255, .12); }
+.full-foot .spacer-btn { width: 44px; flex: none; }
+.full-pos { color: rgba(245, 244, 250, .5); font-size: 13px; font-variant-numeric: tabular-nums; }
+
+/* ---------- Panel „Teraz odtwarzane” ---------- */
+.queue { flex: 1; min-height: 0; width: 100%; display: flex; flex-direction: column; margin: 14px 0 10px; }
+.queue-head { flex: none; padding: 0 2px 8px; font-size: 12px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.queue-head b { color: var(--text); letter-spacing: .04em; }
+.queue .list { position: relative; flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; -webkit-overflow-scrolling: touch; }
+.queue .item::after { left: 90px; }
+.full.queue-open .full-art-wrap, .full.queue-open .full-meta { display: none; }
+.full:not(.queue-open) .queue { display: none; }
 
 /* ---------- Arkusz (dolne okno) ---------- */
 dialog {
