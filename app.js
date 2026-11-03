@@ -1,6 +1,6 @@
 'use strict';
 
-const VERSION = '2.2.0';
+const VERSION = '2.2.1';
 
 /* =========================================================
    Ikony
@@ -244,8 +244,9 @@ const sortPl = () => state.playlists.sort((a, b) => compareNames(a.name, b.name)
 /* =========================================================
    Foldery biblioteki
    Klucz: „d:<ścieżka katalogu>” (zapamiętana przy imporcie folderu),
-   „p:<id playlisty>” dla starszych utworów bez folderu, które należą
-   do dokładnie jednej playlisty, oraz „” dla pozostałych („Inne pliki”).
+   „p:<id playlisty>” dla utworów sprzed wersji 2.1 (bez pola folder), które
+   należą do dokładnie jednej playlisty, oraz „” dla pozostałych („Inne pliki”,
+   m.in. pojedyncze pliki dodane przyciskiem „Pliki”).
    ========================================================= */
 const dirOf = f => (f.webkitRelativePath || '').split('/').slice(0, -1).join('/');
 
@@ -263,7 +264,9 @@ function folders() {
     if (t.folder) {
       key = 'd:' + t.folder;
       name = t.folder.split('/').pop();
-    } else {
+    } else if (t.folder === undefined) {
+      // Tylko utwory sprzed wersji 2.1 (bez zapisanego folderu): folder = jedyna playlista.
+      // Pliki wczytane przyciskiem „Pliki” mają folder '' i zawsze trafiają do „Inne pliki”.
       const ps = plOf.get(t.id);
       if (ps && ps.length === 1) { key = 'p:' + ps[0].id; name = ps[0].name; }
     }
