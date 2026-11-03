@@ -3,7 +3,8 @@
 /* =========================================================
    Odczyt tagów z plików audio
    Obsługiwane: ID3v2.2–2.4 (MP3), MP4/M4A/M4B (iTunes), FLAC (Vorbis comment).
-   Zwraca { title, artist, album, track, picture: { mime, data } } – pola mogą być puste.
+   Zwraca { title, artist, album, track, picture: { mime, data }, duration } – pola mogą być puste.
+   Czas trwania (sekundy) z nagłówków: MP3 (Xing/Info/VBRI lub CBR), MP4 (mvhd), FLAC (STREAMINFO), WAV.
    ========================================================= */
 const Tags = (() => {
   const MAX = 16 * 1024 * 1024;
@@ -158,6 +159,15 @@ const Tags = (() => {
 
     const out = {};
     const root = { start: 0, end: moov.length };
+    const mvhd = child(moov, root, 'mvhd');
+    if (mvhd) {
+      const v = moov[mvhd.start];
+      const ts = v === 1 ? be32(moov, mvhd.start + 20) : be32(moov, mvhd.start + 12);
+      const du = v === 1
+        ? be32(moov, mvhd.start + 24) * 4294967296 + be32(moov, mvhd.start + 28)
+        : be32(moov, mvhd.start + 16);
+      if (ts) out.duration = du / ts;
+    }
     const udta = child(moov, root, 'udta');
     if (!udta) return out;
     const meta = child(moov, udta, 'meta');
@@ -200,7 +210,11 @@ const Tags = (() => {
       }
       if (p + len > b.length) break;
       const d = b.subarray(p, p + len);
-      if (type === 4) {
+      if (type === 0 && len >= 18) {
+        const sr = (d[10] << 12) | (d[11] << 4) | (d[12] >> 4);
+        const total = (d[13] & 0x0f) * 4294967296 + be32(d, 14);
+        if (sr && total) out.duration = total / sr;
+      } else if (type === 4) {
         const utf8 = new TextDecoder('utf-8');
         let q = 4 + le32(d, 0);
         const n = le32(d, q);
@@ -236,17 +250,86 @@ const Tags = (() => {
     return out;
   }
 
+  /* ---------- MP3: czas trwania ---------- */
+  const BR = {
+    '1-1': [0, 32, 64, 96, 128, 160, 192, 224, 256, 288, 320, 352, 384, 416, 448],
+    '1-2': [0, 32, 48, 56, 64, 80, 96, 112, 128, 160, 192, 224, 256, 320, 384],
+    '1-3': [0, 32, 40, 48, 56, 64, 80, 96, 112, 128, 160, 192, 224, 256, 320],
+    '2-1': [0, 32, 48, 56, 64, 80, 96, 112, 128, 144, 160, 176, 192, 224, 256],
+    '2-2': [0, 8, 16, 24, 32, 40, 48, 56, 64, 80, 96, 112, 128, 144, 160],
+  };
+  const SR = { 3: [44100, 48000, 32000], 2: [22050, 24000, 16000], 0: [11025, 12000, 8000] };
+
+  function frameAt(b, p) {
+    if (p + 4 > b.length || b[p] !== 0xff || (b[p + 1] & 0xe0) !== 0xe0) return null;
+    const ver = (b[p + 1] >> 3) & 3, layerBits = (b[p + 1] >> 1) & 3;
+    const bri = b[p + 2] >> 4, sri = (b[p + 2] >> 2) & 3, pad = (b[p + 2] >> 1) & 1;
+    if (ver === 1 || layerBits === 0 || bri === 0 || bri === 15 || sri === 3) return null;
+    const layer = 4 - layerBits;
+    const v1 = ver === 3;
+    const kbps = BR[(v1 ? '1-' : '2-') + (v1 ? layer : layer === 1 ? 1 : 2)][bri];
+    const sr = SR[ver][sri];
+    const spf = layer === 1 ? 384 : layer === 2 || v1 ? 1152 : 576;
+    const len = layer === 1
+      ? (Math.floor(12000 * kbps / sr) + pad) * 4
+      : Math.floor((spf / 8) * 1000 * kbps / sr) + pad;
+    return { v1, mono: (b[p + 3] >> 6) === 3, kbps, sr, spf, len };
+  }
+
+  async function mp3Duration(blob, start) {
+    const b = await read(blob, start, Math.min(blob.size, start + 128 * 1024));
+    for (let p = 0; p + 4 <= b.length; p++) {
+      const f = frameAt(b, p);
+      if (!f || f.len < 24) continue;
+      // Potwierdzenie: następna ramka też musi mieć poprawny nagłówek.
+      if (p + f.len + 4 <= b.length && !frameAt(b, p + f.len)) continue;
+      const side = f.v1 ? (f.mono ? 17 : 32) : (f.mono ? 9 : 17);
+      const x = p + 4 + side;
+      const tag = ascii(b, x, x + 4);
+      if ((tag === 'Xing' || tag === 'Info') && (be32(b, x + 4) & 1)) {
+        const frames = be32(b, x + 8);
+        if (frames) return frames * f.spf / f.sr;
+      }
+      if (ascii(b, p + 36, p + 40) === 'VBRI') {
+        const frames = be32(b, p + 36 + 14);
+        if (frames) return frames * f.spf / f.sr;
+      }
+      return ((blob.size - start - p) * 8) / (f.kbps * 1000);
+    }
+    return 0;
+  }
+
+  /* ---------- WAV: czas trwania ---------- */
+  async function wavDuration(blob) {
+    const b = await read(blob, 0, Math.min(blob.size, 64 * 1024));
+    let p = 12, byteRate = 0;
+    while (p + 8 <= b.length) {
+      const id = ascii(b, p, p + 4), size = le32(b, p + 4);
+      if (id === 'fmt ') byteRate = le32(b, p + 16);
+      if (id === 'data') return byteRate ? Math.min(size, blob.size - p - 8) / byteRate : 0;
+      p += 8 + size + (size & 1);
+    }
+    return 0;
+  }
+
   async function readTags(blob) {
+    let out = {};
     try {
       const h = await read(blob, 0, Math.min(16, blob.size));
       if (h.length < 12) return {};
-      if (h[0] === 0x49 && h[1] === 0x44 && h[2] === 0x33) return await id3(blob, h);
-      if (ascii(h, 4, 8) === 'ftyp') return await mp4(blob);
-      if (ascii(h, 0, 4) === 'fLaC') return await flac(blob);
+      if (h[0] === 0x49 && h[1] === 0x44 && h[2] === 0x33) {
+        out = await id3(blob, h);
+        const end = 10 + syncsafe(h, 6) + (h[5] & 0x10 ? 10 : 0);
+        out.duration = await mp3Duration(blob, end).catch(() => 0);
+      } else if (ascii(h, 4, 8) === 'ftyp') out = await mp4(blob);
+      else if (ascii(h, 0, 4) === 'fLaC') out = await flac(blob);
+      else if (ascii(h, 0, 4) === 'RIFF' && ascii(h, 8, 12) === 'WAVE') out = { duration: await wavDuration(blob) };
+      else if (h[0] === 0xff && (h[1] & 0xe0) === 0xe0) out = { duration: await mp3Duration(blob, 0) };
     } catch {
       /* uszkodzone tagi – ignorujemy */
     }
-    return {};
+    if (!(out.duration > 0 && isFinite(out.duration))) delete out.duration;
+    return out;
   }
 
   return { read: readTags };

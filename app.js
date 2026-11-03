@@ -1,6 +1,6 @@
 'use strict';
 
-const VERSION = '2.2.1';
+const VERSION = '2.2.2';
 
 /* =========================================================
    Ikony
@@ -518,7 +518,7 @@ async function importSelection(fileList, fromFolder) {
       }
 
       const meta = {
-        id, name: f.name, type, size: f.size, duration: 0, added: Date.now() + i,
+        id, name: f.name, type, size: f.size, duration: tags.duration || await probeDuration(blob), added: Date.now() + i,
         title: tags.title || stripExt(f.name), tagTitle: tags.title || '',
         artist: tags.artist || '', album: tags.album || '', trackNo: parseInt(tags.track, 10) || 0,
         hasArt: !!art, folder: dir,
@@ -610,6 +610,64 @@ function offerPlaylist({ ids, name, images, artTrack }) {
     setStatus('Zapisano playlistę');
   };
   sheetEl.showModal();
+}
+
+/* Czas trwania z odtwarzacza przeglądarki – gdy nie udało się go odczytać z nagłówka pliku. */
+function probeDuration(blob) {
+  return new Promise(resolve => {
+    const a = document.createElement('audio');
+    const url = URL.createObjectURL(blob);
+    let done = false;
+    const finish = d => {
+      if (done) return;
+      done = true;
+      clearTimeout(timer);
+      a.removeAttribute('src');
+      a.load();
+      URL.revokeObjectURL(url);
+      resolve(isFinite(d) && d > 0 ? d : 0);
+    };
+    const timer = setTimeout(() => finish(0), 6000);
+    a.preload = 'metadata';
+    a.muted = true;
+    a.addEventListener('loadedmetadata', () => finish(a.duration));
+    a.addEventListener('error', () => finish(0));
+    a.src = url;
+    a.load();
+  });
+}
+
+/* Uzupełnia w tle czas trwania utworów zaimportowanych bez niego (starsze wersje). */
+async function backfillDurations() {
+  const todo = state.tracks.filter(t => !t.duration && !t.noDuration);
+  if (!todo.length) return;
+  log(`uzupełnianie czasu trwania: ${todo.length} utw.`);
+  let changed = 0, lastRender = Date.now();
+  for (const t of todo) {
+    if (!state.trackMap.has(t.id) || t.duration) continue;
+    let blob = null;
+    try { blob = await idb.get('blobs', t.id); } catch { blob = null; }
+    if (!blob) continue;
+    const tags = await Tags.read(blob);
+    const d = tags.duration || await probeDuration(blob);
+    if (!state.trackMap.has(t.id) || t.duration) continue;
+    if (d) t.duration = d;
+    else t.noDuration = true; // nie próbuj ponownie przy każdym starcie
+    await idb.put('tracks', t).catch(() => {});
+    if (d) changed++;
+    if (changed && Date.now() - lastRender > 1500) { lastRender = Date.now(); changed = 0; refreshLists(); }
+  }
+  if (changed) refreshLists();
+}
+
+/* Odświeża listy bez gubienia miejsca przewinięcia. */
+function refreshLists() {
+  if (state.view === 'settings' || state.editing) return;
+  const y = main.scrollTop;
+  render();
+  main.scrollTop = y;
+  queueSig = null;
+  renderQueue();
 }
 
 async function requestPersist(manual) {
@@ -749,6 +807,7 @@ audio.addEventListener('loadedmetadata', () => {
   const meta = state.trackMap.get(loadedId);
   if (meta && isFinite(audio.duration) && Math.abs((meta.duration || 0) - audio.duration) > 1) {
     meta.duration = audio.duration;
+    delete meta.noDuration;
     idb.put('tracks', meta).catch(() => {});
   }
   if (pendingSeek > 3 && (!isFinite(audio.duration) || pendingSeek < audio.duration - 3)) {
@@ -1922,6 +1981,7 @@ async function init() {
   updatePlayerArt();
   render();
   log('start aplikacji');
+  setTimeout(() => backfillDurations().catch(e => log('czas trwania: ' + (e && e.name))), 1500);
 
   if ('serviceWorker' in navigator) {
     navigator.serviceWorker.register('./sw.js').catch(e => log('service worker: ' + e.message));
