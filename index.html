@@ -2,7 +2,7 @@
 <html lang="pl">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -75,8 +75,8 @@
         <button id="btnNext" class="ibtn big" aria-label="Następny utwór" data-icon="next"></button>
       </div>
       <div class="full-foot">
-        <span class="spacer-btn"></span>
-        <span class="full-pos" id="fullPos"></span>
+        <button id="fullTimer" class="ibtn" aria-label="Wyłącznik czasowy" data-icon="moon"></button>
+        <span class="full-pos"><span id="fullPos"></span><span id="sleepLeft" class="sleep-left" hidden></span></span>
         <button id="fullQueue" class="ibtn" aria-label="Teraz odtwarzane" aria-pressed="false" data-icon="queue"></button>
       </div>
     </div>

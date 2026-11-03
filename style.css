@@ -29,6 +29,7 @@ html, body {
 /* Układ „app-shell”: dokument się nie przewija, przewija się tylko <main>.
    Dzięki temu iOS (klawiatura, odbicie przewijania) nie przesuwa dolnego paska. */
 html, body { height: 100%; overflow: hidden; overscroll-behavior: none; }
+html { touch-action: manipulation; }
 body { position: fixed; inset: 0; display: flex; flex-direction: column; }
 
 button, input, label.btn { font: inherit; color: inherit; }
@@ -42,7 +43,7 @@ i[data-icon] { display: block; }
 .top {
   flex: none; position: relative; z-index: 5;
   display: flex; align-items: center; gap: 4px;
-  padding: calc(env(safe-area-inset-top) + 10px) 16px 10px;
+  padding: calc(env(safe-area-inset-top) + 14px) 16px 10px;
   background: rgba(9, 9, 14, .82);
   -webkit-backdrop-filter: saturate(1.4) blur(20px);
   backdrop-filter: saturate(1.4) blur(20px);
@@ -147,6 +148,14 @@ body.is-playing .eq i { animation: eq .9s ease-in-out infinite alternate; }
 .tile b { font-size: 15px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .tile small { font-size: 13px; color: var(--muted); }
 .tile:active .art { transform: scale(.97); }
+.tile-wrap { position: relative; min-width: 0; display: flex; }
+.tile-wrap .tile { flex: 1; }
+.tile-more {
+  position: absolute; top: 8px; right: 8px; width: 34px; height: 34px; border: 0; border-radius: 50%; padding: 0;
+  display: grid; place-items: center; color: #fff; background: rgba(9, 9, 14, .55);
+  -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px);
+}
+.tile-more svg { width: 18px; height: 18px; }
 
 /* ---------- Widok playlisty ---------- */
 .hero { display: flex; flex-direction: column; align-items: center; text-align: center; gap: 6px; padding: 6px 0 18px; }
@@ -230,18 +239,18 @@ body.is-playing .eq i { animation: eq .9s ease-in-out infinite alternate; }
 .full-inner {
   position: relative; z-index: 1; height: 100%; max-width: 520px; margin: 0 auto;
   display: flex; flex-direction: column; align-items: center;
-  padding: calc(env(safe-area-inset-top) + 6px) 24px calc(env(safe-area-inset-bottom) + 20px);
+  padding: calc(env(safe-area-inset-top) + 22px) 24px calc(env(safe-area-inset-bottom) + 20px);
 }
 .full-head { width: 100%; display: flex; align-items: center; gap: 8px; }
 .full-head .ibtn { margin-left: -10px; }
 .full-head .ibtn svg { width: 30px; height: 30px; }
 .full-from { flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: center; }
-.full-from small { font-size: 10.5px; font-weight: 700; letter-spacing: .14em; text-transform: uppercase; color: var(--muted); }
+.full-from small { font-size: 11.5px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; color: rgba(245, 244, 250, .7); }
 .full-from b { max-width: 100%; font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .pill-sm { border: 0; border-radius: 999px; background: rgba(255, 255, 255, .1); padding: 6px 12px; min-width: 52px; font-size: 13px; font-weight: 750; }
 .full-art-wrap { flex: 1; min-height: 0; width: 100%; display: grid; place-items: center; padding: 18px 0; }
 .art-xl {
-  width: min(100%, 44vh, 380px); aspect-ratio: 1; border-radius: 20px;
+  width: min(100%, 42vh, 380px); aspect-ratio: 1; border-radius: 20px;
   box-shadow: 0 34px 70px -24px rgba(0, 0, 0, .95);
   transition: transform .45s cubic-bezier(.2, .8, .2, 1);
 }
@@ -280,8 +289,8 @@ body:not(.is-playing) .art-xl { transform: scale(.86); }
 .full-foot .ibtn { color: rgba(245, 244, 250, .6); border-radius: 12px; }
 .full-foot .ibtn svg { width: 24px; height: 24px; }
 .full-foot .ibtn.on { color: var(--text); background: rgba(255, 255, 255, .12); }
-.full-foot .spacer-btn { width: 44px; flex: none; }
-.full-pos { color: rgba(245, 244, 250, .5); font-size: 13px; font-variant-numeric: tabular-nums; }
+.full-pos { display: flex; flex-direction: column; align-items: center; gap: 2px; color: rgba(245, 244, 250, .5); font-size: 13px; font-variant-numeric: tabular-nums; }
+.sleep-left { color: var(--accent); font-size: 12px; font-weight: 650; }
 
 /* ---------- Panel „Teraz odtwarzane” ---------- */
 .queue { flex: 1; min-height: 0; width: 100%; display: flex; flex-direction: column; margin: 14px 0 10px; }
@@ -335,3 +344,20 @@ dialog h3 { margin: 0 4px 6px; font-size: 18px; font-weight: 750; white-space: n
 .check { display: flex; align-items: center; gap: 12px; padding: 11px 6px; border-bottom: 1px solid var(--line); }
 .check input { width: 22px; height: 22px; flex: none; accent-color: var(--a2); }
 .check span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* ---------- Wyłącznik czasowy: kółka jak w Minutniku iOS ---------- */
+.wheels { position: relative; display: flex; justify-content: center; gap: 8px; height: 200px; margin: 6px 0 14px; }
+.wheel-band { position: absolute; left: 8px; right: 8px; top: 80px; height: 40px; border-radius: 10px; background: var(--surface-3); pointer-events: none; }
+.wheel-col { position: relative; display: flex; align-items: center; width: 130px; }
+.wheel {
+  position: relative; width: 70px; height: 200px; overflow-y: auto; scroll-snap-type: y mandatory;
+  padding: 80px 0; scrollbar-width: none; overscroll-behavior: contain;
+  -webkit-mask-image: linear-gradient(to bottom, transparent, #000 35%, #000 65%, transparent);
+  mask-image: linear-gradient(to bottom, transparent, #000 35%, #000 65%, transparent);
+}
+.wheel::-webkit-scrollbar { display: none; }
+.wheel-row { height: 40px; line-height: 40px; text-align: right; padding-right: 8px; scroll-snap-align: center; font-size: 22px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.wheel-row.sel { color: var(--text); font-weight: 650; }
+.wheel-unit { position: relative; font-size: 16px; font-weight: 650; }
+.presets { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; }
+.presets .btn { padding: 8px 14px; font-size: 14px; }

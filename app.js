@@ -1,6 +1,6 @@
 'use strict';
 
-const VERSION = '2.1.0';
+const VERSION = '2.2.0';
 
 /* =========================================================
    Ikony
@@ -26,6 +26,7 @@ const ICON = {
   x: st('<path d="M6 6l12 12M18 6L6 18"/>'),
   none: st('<circle cx="12" cy="12" r="8"/><path d="M6.5 17.5l11-11"/>'),
   note: st('<path d="M10 17.5V5.2l9-2.2v3.2l-9 2.2"/><circle cx="7" cy="17.5" r="3"/>'),
+  moon: st('<path d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5z"/>'),
   queue: st('<path d="M4 6h16M4 11h16M4 16h8"/><path d="M16 13.5v7l5-3.5z" fill="currentColor" stroke="none"/>'),
 };
 
@@ -783,6 +784,11 @@ audio.addEventListener('ended', () => {
   const id = currentId();
   if (id) { state.positions[id] = 0; persistPositions(); }
   log('koniec: ' + titleOf(id));
+  if (sleep && sleep.endOfTrack) {
+    stopForSleep();
+    updatePlayerUI();
+    return;
+  }
   if (state.index + 1 < state.queue.length) {
     loadTrack(state.index + 1, true);
   } else {
@@ -797,6 +803,7 @@ audio.addEventListener('timeupdate', () => {
   const now = Date.now();
   if (now - lastSave > 5000) { lastSave = now; savePosition(); }
   if (now - lastPosState > 5000) { lastPosState = now; updatePositionState(); }
+  checkSleep();
 });
 
 audio.addEventListener('seeked', () => {
@@ -1052,6 +1059,101 @@ full.addEventListener('touchend', e => {
 });
 
 /* =========================================================
+   Wyłącznik czasowy (domyślnie wyłączony, nie jest zapamiętywany)
+   PWA nie może zamknąć samej siebie – po czasie zatrzymuje odtwarzanie.
+   Sprawdzany w „timeupdate”, więc działa też przy zablokowanym ekranie.
+   ========================================================= */
+let sleep = null; // { until: ms } | { endOfTrack: true } | null
+let sleepTick = null;
+
+function setSleep(v) {
+  sleep = v;
+  clearInterval(sleepTick);
+  sleepTick = sleep && sleep.until ? setInterval(() => { checkSleep(); updateSleepUI(); }, 1000) : null;
+  if (sleep) log(sleep.until ? 'wyłącznik czasowy: ' + fmt((sleep.until - Date.now()) / 1000) : 'wyłącznik czasowy: po bieżącym utworze');
+  updateSleepUI();
+}
+
+function stopForSleep() {
+  setSleep(null);
+  if (!audio.paused) audio.pause();
+  log('wyłącznik czasowy: pauza');
+  setStatus('Zatrzymano – wyłącznik czasowy');
+}
+
+function checkSleep() {
+  if (sleep && sleep.until && Date.now() >= sleep.until) stopForSleep();
+}
+
+function updateSleepUI() {
+  const btn = $('#fullTimer');
+  btn.classList.toggle('on', !!sleep);
+  const el = $('#sleepLeft');
+  if (!sleep) { el.textContent = ''; el.hidden = true; return; }
+  el.hidden = false;
+  el.textContent = sleep.until ? '⏾ ' + fmt(Math.max(0, (sleep.until - Date.now()) / 1000)) : '⏾ po tym utworze';
+}
+
+const WHEEL_ROW = 40;
+function wheelHtml(id, n, unit, sel) {
+  let rows = '';
+  for (let i = 0; i < n; i++) rows += `<div class="wheel-row">${i}</div>`;
+  return `<div class="wheel-col"><div class="wheel" id="${id}" data-sel="${sel}">${rows}</div><span class="wheel-unit">${unit}</span></div>`;
+}
+const wheelValue = el => Math.max(0, Math.min(el.children.length - 1, Math.round(el.scrollTop / WHEEL_ROW)));
+function setWheel(el, v, smooth) {
+  el.scrollTo({ top: v * WHEEL_ROW, behavior: smooth ? 'smooth' : 'auto' });
+}
+
+function sleepSheet() {
+  const last = state.settings.sleepLast || 30;
+  sheetBody.innerHTML = `
+    <h3>Wyłącznik czasowy</h3>
+    <p class="sheet-note">Po upływie czasu odtwarzanie zostanie zatrzymane.${sleep ? ` Teraz: <b>${esc($('#sleepLeft').textContent.replace('⏾ ', ''))}</b>.` : ''}</p>
+    <div class="wheels">
+      <div class="wheel-band"></div>
+      ${wheelHtml('wh', 6, 'godz.', Math.floor(last / 60))}
+      ${wheelHtml('wm', 60, 'min', last % 60)}
+    </div>
+    <div class="presets">
+      ${[15, 30, 45, 60].map(m => `<button class="btn" data-min="${m}">${m} min</button>`).join('')}
+      <button class="btn" data-eot>Po bieżącym utworze</button>
+    </div>
+    <button class="sheet-btn primary" data-start>Start</button>
+    ${sleep ? '<button class="sheet-btn danger" data-off>Wyłącz wyłącznik</button>' : ''}
+    <button class="sheet-btn cancel" data-cancel>Anuluj</button>`;
+  const wh = $('#wh'), wm = $('#wm');
+  const mark = () => [wh, wm].forEach(w => {
+    const v = wheelValue(w);
+    [...w.children].forEach((r, i) => r.classList.toggle('sel', i === v));
+  });
+  wh.addEventListener('scroll', mark, { passive: true });
+  wm.addEventListener('scroll', mark, { passive: true });
+  sheetBody.onclick = e => {
+    const row = e.target.closest('.wheel-row');
+    if (row) { setWheel(row.parentElement, [...row.parentElement.children].indexOf(row), true); return; }
+    const pre = e.target.closest('[data-min]');
+    if (pre) { const m = +pre.dataset.min; setWheel(wh, Math.floor(m / 60), true); setWheel(wm, m % 60, true); return; }
+    if (e.target.closest('[data-cancel]')) { sheetEl.close(); return; }
+    if (e.target.closest('[data-off]')) { setSleep(null); log('wyłącznik czasowy: wyłączony'); sheetEl.close(); return; }
+    if (e.target.closest('[data-eot]')) { setSleep({ endOfTrack: true }); sheetEl.close(); return; }
+    if (e.target.closest('[data-start]')) {
+      const mins = wheelValue(wh) * 60 + wheelValue(wm);
+      if (!mins) { alert('Wybierz czas większy od zera.'); return; }
+      state.settings.sleepLast = mins;
+      saveSettings();
+      setSleep({ until: Date.now() + mins * 60000 });
+      sheetEl.close();
+    }
+  };
+  sheetEl.showModal();
+  setWheel(wh, Math.floor(last / 60));
+  setWheel(wm, last % 60);
+  mark();
+}
+$('#fullTimer').addEventListener('click', sleepSheet);
+
+/* =========================================================
    Arkusze akcji
    ========================================================= */
 sheetEl.addEventListener('close', () => {
@@ -1182,21 +1284,41 @@ function plMenu(p) {
     {
       label: 'Usuń playlistę',
       danger: true,
-      fn: async () => {
-        if (!confirm(`Usunąć playlistę „${p.name}”? Utwory zostaną w bibliotece.`)) return;
-        await idb.del('playlists', p.id);
-        await idb.del('art', 'pl:' + p.id).catch(() => {});
-        forgetArt('pl:' + p.id);
-        state.playlists = state.playlists.filter(x => x.id !== p.id);
-        if (state.source?.type === 'playlist' && state.source.id === p.id) state.source = { type: 'library' };
-        state.view = 'playlists';
-        render();
-        updatePlayerUI();
-        updatePlayerArt();
-      },
+      fn: () => deletePlaylist(p),
     },
   );
   sheet(p.name, actions);
+}
+
+async function deletePlaylist(p) {
+  if (!confirm(`Usunąć playlistę „${p.name}”? Utwory zostaną w bibliotece.`)) return;
+  await idb.del('playlists', p.id);
+  await idb.del('art', 'pl:' + p.id).catch(() => {});
+  forgetArt('pl:' + p.id);
+  state.playlists = state.playlists.filter(x => x.id !== p.id);
+  if (state.source?.type === 'playlist' && state.source.id === p.id) state.source = { type: 'library' };
+  state.view = 'playlists';
+  render();
+  updatePlayerUI();
+  updatePlayerArt();
+  setStatus('Usunięto playlistę');
+}
+
+function folderMenu(g) {
+  if (!g) return;
+  sheet(`${g.name} · ${g.tracks.length} utw.`, [
+    { label: 'Odtwórz', fn: () => playFolder(g) },
+    {
+      label: 'Usuń folder z aplikacji',
+      danger: true,
+      fn: async () => {
+        if (!confirm(`Usunąć folder „${g.name}” (${g.tracks.length} utw.) z aplikacji? Oryginały w aplikacji Pliki zostaną.`)) return;
+        if (state.view === 'folder' && state.openFolder === g.key) state.view = 'library';
+        await deleteTracks(g.tracks.map(t => t.id));
+        setStatus(`Usunięto folder „${g.name}”`);
+      },
+    },
+  ]);
 }
 
 /* =========================================================
@@ -1258,33 +1380,42 @@ function syncQueueWithPlaylist(p) {
   if (!audio.paused) prefetchNext();
 }
 
-async function deleteTrack(id) {
+const deleteTrack = id => deleteTracks([id]);
+
+async function deleteTracks(ids) {
+  const del = new Set(ids);
+  if (!del.size) return;
   const db = await openDB();
   await new Promise((resolve, reject) => {
     const t = db.transaction(['tracks', 'blobs', 'playlists', 'art'], 'readwrite');
-    t.objectStore('tracks').delete(id);
-    t.objectStore('blobs').delete(id);
-    t.objectStore('art').delete('tr:' + id);
+    for (const id of del) {
+      t.objectStore('tracks').delete(id);
+      t.objectStore('blobs').delete(id);
+      t.objectStore('art').delete('tr:' + id);
+    }
     for (const p of state.playlists) {
-      if (p.trackIds.includes(id)) {
-        p.trackIds = p.trackIds.filter(x => x !== id);
+      if (p.trackIds.some(x => del.has(x))) {
+        p.trackIds = p.trackIds.filter(x => !del.has(x));
         t.objectStore('playlists').put(p);
       }
     }
     t.oncomplete = () => resolve();
     t.onerror = () => reject(t.error);
   });
-  state.tracks = state.tracks.filter(t => t.id !== id);
-  state.trackMap.delete(id);
-  forgetArt('tr:' + id);
-  delete state.positions[id];
+  state.tracks = state.tracks.filter(t => !del.has(t.id));
+  for (const id of del) {
+    state.trackMap.delete(id);
+    forgetArt('tr:' + id);
+    delete state.positions[id];
+  }
   persistPositions();
-  if (prefetched && prefetched.id === id) clearPrefetch();
+  if (prefetched && del.has(prefetched.id)) clearPrefetch();
 
   if (state.source?.type === 'folder' && !getFolder(state.source.id)) state.source = { type: 'library' };
-  if (state.queue.includes(id)) {
+  if (state.queue.some(x => del.has(x))) {
     const cur = currentId();
-    if (cur === id) {
+    const curGone = del.has(cur);
+    if (curGone) {
       audio.pause();
       audio.removeAttribute('src');
       audio.load();
@@ -1292,8 +1423,10 @@ async function deleteTrack(id) {
       currentUrl = null;
       loadedId = null;
     }
-    const q = state.queue.filter(x => x !== id);
-    const ni = cur === id ? Math.min(state.index, q.length - 1) : q.indexOf(cur);
+    // Nowy indeks: pierwszy pozostały utwór za bieżącym (albo ostatni).
+    const before = state.queue.slice(0, state.index).filter(x => !del.has(x)).length;
+    const q = state.queue.filter(x => !del.has(x));
+    const ni = curGone ? Math.min(before, q.length - 1) : q.indexOf(cur);
     state.queue = q;
     state.index = q.length ? Math.max(0, ni) : -1;
     saveLast();
@@ -1447,6 +1580,7 @@ function renderLibrary() {
       <button class="main" data-act="open-folder">${artHtml(withArt ? 'tr:' + withArt.id : null, 'art-md', 'folder')}
         <span class="txt"><span class="title">${esc(g.name)}</span><span class="meta">${g.tracks.length} utw.${dur ? ' · ' + fmtLong(dur) : ''}</span></span>
       </button>${eqHtml}
+      <button class="ibtn more" data-act="menu-folder" aria-label="Więcej">${ICON.more}</button>
     </li>`;
     }).join('') + '</ul>';
   }
@@ -1462,6 +1596,7 @@ function renderFolder() {
   main.innerHTML = `<div class="toolbar">
       <button class="btn primary" data-act="play-folder">${ICON.play}Odtwórz</button>
       <span class="spacer"></span>${sortBtn()}
+      <button class="btn icon" data-act="menu-folder" aria-label="Więcej">${ICON.more}</button>
     </div>
     <p class="count">${g.tracks.length} utw. · ${fmtSize(size)}</p>` + trackListHtml(g.tracks);
 }
@@ -1471,10 +1606,13 @@ function renderPlaylists() {
   let html = `<div class="grid">
       <button class="tile tile-new" data-act="new-pl"><div class="art">${ICON.plus}</div><b>Nowa playlista</b><small>&nbsp;</small></button>`;
   html += state.playlists.map(p => `
-      <button class="tile" data-act="open-pl" data-pid="${esc(p.id)}">
-        ${artHtml(playlistArtKey(p), '', 'lists')}
-        <b>${esc(p.name)}</b><small>${p.trackIds.length} utw.</small>
-      </button>`).join('');
+      <div class="tile-wrap">
+        <button class="tile" data-act="open-pl" data-pid="${esc(p.id)}">
+          ${artHtml(playlistArtKey(p), '', 'lists')}
+          <b>${esc(p.name)}</b><small>${p.trackIds.length} utw.</small>
+        </button>
+        <button class="tile-more" data-act="tile-menu" data-pid="${esc(p.id)}" aria-label="Więcej">${ICON.more}</button>
+      </div>`).join('');
   html += '</div>';
   if (!state.playlists.length) {
     html += `<p class="note">Wskazówka: wczytaj cały folder w Bibliotece, a NPlayer zaproponuje zapisanie go jako playlisty z okładką.</p>`;
@@ -1583,6 +1721,12 @@ main.addEventListener('click', e => {
       if (scope.startsWith('f:')) playFolder(getFolder(scope.slice(2)), id);
       break;
     }
+    case 'menu-folder':
+      folderMenu(getFolder(item ? item.dataset.folder : state.openFolder));
+      break;
+    case 'tile-menu':
+      plMenu(getPl(b.dataset.pid));
+      break;
     case 'open-folder':
       state.openFolder = item.dataset.folder;
       state.view = 'folder';
@@ -1709,6 +1853,12 @@ $('#jsonInput').addEventListener('change', async e => {
   e.target.value = '';
   if (f) await importJson(f);
 });
+
+/* Blokada powiększania gestami (iOS ignoruje user-scalable=no). */
+for (const ev of ['gesturestart', 'gesturechange', 'gestureend']) {
+  document.addEventListener(ev, e => e.preventDefault(), { passive: false });
+}
+document.addEventListener('touchmove', e => { if (e.touches.length > 1) e.preventDefault(); }, { passive: false });
 
 /* iOS po zamknięciu klawiatury potrafi zostawić przesunięty widok – przywracamy go. */
 function resetViewport() {
