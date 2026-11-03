@@ -1,6 +1,6 @@
 'use strict';
 
-const VERSION = '2.2.2';
+const VERSION = '2.3.0';
 
 /* =========================================================
    Ikony
@@ -1250,7 +1250,7 @@ function libSortSheet() {
 function libMenu(t) {
   if (!t) return;
   sheet(t.title, [
-    { label: 'Dodaj do playlisty…', fn: () => pickPlaylist(t) },
+    { label: 'Dodaj do playlisty…', fn: () => pickPlaylist([t.id]) },
     {
       label: 'Odtwórz od początku',
       fn: () => {
@@ -1265,23 +1265,26 @@ function libMenu(t) {
   ]);
 }
 
-function pickPlaylist(t) {
-  sheet('Dodaj do playlisty', [
+function pickPlaylist(ids, after) {
+  const n = ids.length;
+  sheet(n > 1 ? `Dodaj ${n} utw. do playlisty` : 'Dodaj do playlisty', [
     ...state.playlists.map(p => ({
       label: p.name,
       fn: async () => {
-        p.trackIds.push(t.id);
+        p.trackIds.push(...ids);
         await savePl(p);
         syncQueueWithPlaylist(p);
         setStatus(`Dodano do „${p.name}”`);
+        if (after) after();
       },
     })),
     {
       label: '+ Nowa playlista…',
       fn: () => newPlaylist(async p => {
-        p.trackIds.push(t.id);
+        p.trackIds.push(...ids);
         await savePl(p);
         setStatus(`Dodano do „${p.name}”`);
+        if (after) after();
         render();
       }),
     },
@@ -1576,7 +1579,8 @@ function render() {
   else if (state.view === 'folder') renderFolder();
   else if (state.view === 'playlists') renderPlaylists();
   else if (state.view === 'playlist') renderPlaylist();
-  else { renderSettings(); return; }
+  else { renderSettings(); updateSelectBar(); return; }
+  updateSelectBar();
   markCurrent();
   hydrateArt(main);
 }
@@ -1601,12 +1605,70 @@ function trackInfo(t) {
 
 const sortBtn = () => `<button class="btn ghost" data-act="lib-sort">${ICON.sort}${esc(SORT_LABELS[state.settings.librarySort] || '')}</button>`;
 
+/* Tryb zaznaczania (Biblioteka: foldery, widok folderu: utwory) */
+let selecting = false;
+const selected = new Set();
+const selBox = key => (selecting ? `<span class="sel-box${selected.has(key) ? ' on' : ''}" aria-hidden="true"></span>` : '');
+const rowCls = key => (selecting ? ` selecting${selected.has(key) ? ' selected' : ''}` : '');
+
+function endSelect() {
+  selecting = false;
+  selected.clear();
+  updateSelectBar();
+}
+
+function selectToolbar(allKeys) {
+  const all = allKeys.length && allKeys.every(k => selected.has(k));
+  return `<button class="btn" data-act="sel-all">${all ? 'Odznacz wszystkie' : 'Zaznacz wszystkie'}</button>
+      <span class="spacer"></span>
+      <button class="btn primary" data-act="sel-done">Gotowe</button>`;
+}
+
+function updateSelectBar() {
+  const bar = $('#selectBar');
+  const show = selecting && (state.view === 'library' || state.view === 'folder');
+  bar.hidden = !show;
+  document.body.classList.toggle('selecting', show);
+  if (!show) { bar.innerHTML = ''; return; }
+  const n = selected.size;
+  const label = `Zaznaczono: ${n}`;
+  bar.innerHTML = `<span class="sel-count">${label}</span>
+    ${state.view === 'folder' ? `<button class="btn" data-act="sel-add" ${n ? '' : 'disabled'}>${ICON.plus}Do playlisty</button>` : ''}
+    <button class="btn danger-fill" data-act="sel-delete" ${n ? '' : 'disabled'}>Usuń${n ? ` (${n})` : ''}</button>`;
+}
+
+/* Ponowne narysowanie widoku bez zmiany miejsca przewinięcia. */
+function rerender() {
+  const y = main.scrollTop;
+  render();
+  main.scrollTop = y;
+}
+
+async function deleteSelected() {
+  if (!selected.size) return;
+  let ids, msg;
+  if (state.view === 'library') {
+    const groups = folders().filter(g => selected.has(g.key));
+    ids = groups.flatMap(g => g.tracks.map(t => t.id));
+    msg = groups.length === 1
+      ? `Usunąć folder „${groups[0].name}” (${ids.length} utw.) z aplikacji?`
+      : `Usunąć ${groups.length} foldery/folderów (${ids.length} utw.) z aplikacji?`;
+  } else {
+    ids = [...selected].filter(id => state.trackMap.has(id));
+    msg = `Usunąć zaznaczone utwory (${ids.length}) z aplikacji?`;
+  }
+  if (!ids.length || !confirm(msg + ' Oryginały w aplikacji Pliki zostaną.')) return;
+  endSelect();
+  await deleteTracks(ids);
+  setStatus(`Usunięto ${ids.length} utw.`);
+}
+
 const trackListHtml = tracks => '<ul class="list">' + tracks.map(t => `
-    <li class="item" data-id="${esc(t.id)}">
-      <button class="main" data-act="play-track">${trackArt(t)}
+    <li class="item${rowCls(t.id)}" data-id="${esc(t.id)}">
+      <button class="main" data-act="${selecting ? 'sel-toggle' : 'play-track'}">${selBox(t.id)}${trackArt(t)}
         <span class="txt"><span class="title">${esc(t.title)}</span><span class="meta">${esc(trackInfo(t))}</span></span>
-      </button>${eqHtml}
-      <button class="ibtn more" data-act="menu-lib" aria-label="Więcej">${ICON.more}</button>
+      </button>${selecting ? '' : eqHtml + `
+      <button class="ibtn more" data-act="menu-lib" aria-label="Więcej">${ICON.more}</button>`}
     </li>`).join('') + '</ul>';
 
 function renderLibrary() {
@@ -1614,11 +1676,12 @@ function renderLibrary() {
   const total = state.tracks.reduce((a, t) => a + t.size, 0);
   const groups = folders();
   const folderBtn = FOLDER_OK ? `<label class="btn" for="folderInput">${ICON.folder}Folder</label>` : '';
-  let html = `<div class="toolbar">
+  if (!state.tracks.length && selecting) endSelect();
+  let html = selecting ? `<div class="toolbar">${selectToolbar(groups.map(g => g.key))}</div>` : `<div class="toolbar">
       <label class="btn primary" for="fileInput">${ICON.plus}Pliki</label>${folderBtn}
       <span class="spacer"></span>
-      ${state.tracks.length ? sortBtn() : ''}
-    </div>`;
+      ${state.tracks.length ? `<button class="btn ghost" data-act="sel-start">Zaznacz</button>` : ''}
+    </div>${state.tracks.length ? `<div class="toolbar sub">${sortBtn()}</div>` : ''}`;
   if (!state.tracks.length) {
     html += `<div class="empty">
         <div class="glyph">${ICON.lib}</div>
@@ -1628,24 +1691,19 @@ function renderLibrary() {
     main.innerHTML = html;
     return;
   }
-  html += `<p class="count">${groups.length > 1 ? `Foldery: ${groups.length} · ` : ''}${state.tracks.length} utw. · ${fmtSize(total)}</p>`;
-  if (groups.length === 1) {
-    // Jeden folder – od razu lista utworów.
-    main.dataset.scope = 'f:' + groups[0].key;
-    html += trackListHtml(groups[0].tracks);
-  } else {
-    html += '<ul class="list">' + groups.map(g => {
-      const withArt = g.tracks.find(t => t.hasArt);
-      const dur = g.tracks.reduce((a, t) => a + (t.duration || 0), 0);
-      return `
-    <li class="item" data-folder="${esc(g.key)}">
-      <button class="main" data-act="open-folder">${artHtml(withArt ? 'tr:' + withArt.id : null, 'art-md', 'folder')}
+  html += `<p class="count">Foldery: ${groups.length} · ${state.tracks.length} utw. · ${fmtSize(total)}</p>`;
+  // Foldery są zawsze zwinięte – także gdy został tylko jeden.
+  html += '<ul class="list">' + groups.map(g => {
+    const withArt = g.tracks.find(t => t.hasArt);
+    const dur = g.tracks.reduce((a, t) => a + (t.duration || 0), 0);
+    return `
+    <li class="item${rowCls(g.key)}" data-folder="${esc(g.key)}">
+      <button class="main" data-act="${selecting ? 'sel-toggle' : 'open-folder'}">${selBox(g.key)}${artHtml(withArt ? 'tr:' + withArt.id : null, 'art-md', 'folder')}
         <span class="txt"><span class="title">${esc(g.name)}</span><span class="meta">${g.tracks.length} utw.${dur ? ' · ' + fmtLong(dur) : ''}</span></span>
-      </button>${eqHtml}
-      <button class="ibtn more" data-act="menu-folder" aria-label="Więcej">${ICON.more}</button>
+      </button>${selecting ? '' : eqHtml + `
+      <button class="ibtn more" data-act="menu-folder" aria-label="Więcej">${ICON.more}</button>`}
     </li>`;
-    }).join('') + '</ul>';
-  }
+  }).join('') + '</ul>';
   main.innerHTML = html;
 }
 
@@ -1655,11 +1713,13 @@ function renderFolder() {
   $('#viewTitle').textContent = g.name;
   main.dataset.scope = 'f:' + g.key;
   const size = g.tracks.reduce((a, t) => a + t.size, 0);
-  main.innerHTML = `<div class="toolbar">
+  const bar = selecting ? `<div class="toolbar">${selectToolbar(g.tracks.map(t => t.id))}</div>` : `<div class="toolbar">
       <button class="btn primary" data-act="play-folder">${ICON.play}Odtwórz</button>
-      <span class="spacer"></span>${sortBtn()}
+      <span class="spacer"></span>
+      <button class="btn ghost" data-act="sel-start">Zaznacz</button>
       <button class="btn icon" data-act="menu-folder" aria-label="Więcej">${ICON.more}</button>
-    </div>
+    </div><div class="toolbar sub">${sortBtn()}</div>`;
+  main.innerHTML = bar + `
     <p class="count">${g.tracks.length} utw. · ${fmtSize(size)}</p>` + trackListHtml(g.tracks);
 }
 
@@ -1790,6 +1850,7 @@ main.addEventListener('click', e => {
       plMenu(getPl(b.dataset.pid));
       break;
     case 'open-folder':
+      endSelect();
       state.openFolder = item.dataset.folder;
       state.view = 'folder';
       render();
@@ -1801,6 +1862,31 @@ main.addEventListener('click', e => {
     case 'menu-lib':
       libMenu(state.trackMap.get(id));
       break;
+    case 'sel-start':
+      selecting = true;
+      selected.clear();
+      rerender();
+      break;
+    case 'sel-done':
+      endSelect();
+      rerender();
+      break;
+    case 'sel-toggle': {
+      const key = state.view === 'library' ? item.dataset.folder : id;
+      if (selected.has(key)) selected.delete(key); else selected.add(key);
+      rerender();
+      break;
+    }
+    case 'sel-all': {
+      const keys = state.view === 'library'
+        ? folders().map(g => g.key)
+        : (getFolder(state.openFolder)?.tracks || []).map(t => t.id);
+      const all = keys.every(k => selected.has(k));
+      selected.clear();
+      if (!all) keys.forEach(k => selected.add(k));
+      rerender();
+      break;
+    }
     case 'lib-sort':
       libSortSheet();
       break;
@@ -1875,16 +1961,28 @@ main.addEventListener('click', e => {
   }
 });
 
+$('#selectBar').addEventListener('click', e => {
+  const b = e.target.closest('[data-act]');
+  if (!b || b.disabled) return;
+  if (b.dataset.act === 'sel-delete') deleteSelected();
+  else if (b.dataset.act === 'sel-add') {
+    const ids = [...selected].filter(id => state.trackMap.has(id));
+    pickPlaylist(ids, () => { endSelect(); rerender(); });
+  }
+});
+
 document.querySelector('.tabs').addEventListener('click', e => {
   const b = e.target.closest('button[data-view]');
   if (!b) return;
   closeFull();
+  endSelect();
   state.view = b.dataset.view;
   state.editing = false;
   render();
   main.scrollTop = 0;
 });
 $('#back').addEventListener('click', () => {
+  endSelect();
   state.view = state.view === 'folder' ? 'library' : 'playlists';
   state.editing = false;
   render();
