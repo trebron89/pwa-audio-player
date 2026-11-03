@@ -1,6 +1,6 @@
 'use strict';
 
-const VERSION = '2.3.0';
+const VERSION = '2.3.1';
 
 /* =========================================================
    Ikony
@@ -1825,6 +1825,12 @@ async function renderSettings() {
       <h2>Dane</h2>
       <div class="row"><button class="btn danger" data-act="wipe">Usuń wszystkie dane</button></div>
     </section>
+    <section class="card">
+      <h2>Aplikacja</h2>
+      <p>Wersja: <b>${VERSION}</b></p>
+      <div class="row"><button class="btn" data-act="update">Sprawdź aktualizację</button></div>
+      <p class="hint">Nowa wersja wczytuje się sama przy uruchomieniu, gdy jest połączenie z internetem.</p>
+    </section>
     <p class="version">NPlayer ${VERSION}</p>`;
   renderLog();
 }
@@ -1955,6 +1961,9 @@ main.addEventListener('click', e => {
       try { localStorage.removeItem('log'); } catch { /* ignoruj */ }
       renderLog();
       break;
+    case 'update':
+      checkUpdate();
+      break;
     case 'wipe':
       wipeAll();
       break;
@@ -2037,6 +2046,51 @@ window.addEventListener('resize', setDockH);
 /* =========================================================
    Start
    ========================================================= */
+/* =========================================================
+   Aktualizacje (service worker)
+   ========================================================= */
+let swReg = null;
+let reloadingForUpdate = false;
+
+function setupServiceWorker() {
+  if (!('serviceWorker' in navigator)) return;
+  const hadController = !!navigator.serviceWorker.controller;
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    if (!hadController || reloadingForUpdate) return;
+    if (audio.paused) {
+      reloadingForUpdate = true;
+      savePosition();
+      location.reload();
+    } else {
+      setStatus('Dostępna nowa wersja – uruchom aplikację ponownie', true);
+    }
+  });
+  navigator.serviceWorker.register('./sw.js', { updateViaCache: 'none' })
+    .then(reg => { swReg = reg; })
+    .catch(e => log('service worker: ' + e.message));
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible' && swReg) swReg.update().catch(() => {});
+  });
+}
+
+async function checkUpdate() {
+  if (!swReg) { location.reload(); return; }
+  setStatus('Sprawdzanie aktualizacji…', true);
+  try {
+    await swReg.update();
+  } catch {
+    setStatus('Brak połączenia');
+    return;
+  }
+  if (swReg.installing || swReg.waiting) {
+    setStatus('Pobieranie nowej wersji…', true);
+    return; // controllerchange przeładuje aplikację
+  }
+  // Ten sam sw.js – mimo to wczytaj pliki aplikacji na nowo (najpierw z sieci).
+  savePosition();
+  location.reload();
+}
+
 async function init() {
   document.querySelectorAll('[data-icon]').forEach(el => { el.innerHTML = ICON[el.dataset.icon] || ''; });
   setupUnlock();
@@ -2081,9 +2135,7 @@ async function init() {
   log('start aplikacji');
   setTimeout(() => backfillDurations().catch(e => log('czas trwania: ' + (e && e.name))), 1500);
 
-  if ('serviceWorker' in navigator) {
-    navigator.serviceWorker.register('./sw.js').catch(e => log('service worker: ' + e.message));
-  }
+  setupServiceWorker();
 }
 
 init();

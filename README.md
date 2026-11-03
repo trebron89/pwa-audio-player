@@ -47,4 +47,4 @@ Jeśli wcześniej wgrałeś wersję „Odtwarzacz” do tego samego repozytorium
 
 - Wyczyszczenie danych witryn w ustawieniach Safari usuwa kopie plików (oryginały zostają w Plikach).
 - Karta Safari i aplikacja z ekranu początkowego mają osobne dane.
-- Po aktualizacji plików na GitHubie nowa wersja pojawia się przy kolejnym uruchomieniu. Jeśli nie, zmień w `sw.js` wartość `CACHE`.
+- **Aktualizacja**: nowa wersja wczytuje się sama przy uruchomieniu aplikacji (gdy jest internet). Można też użyć Ustawienia → Aplikacja → „Sprawdź aktualizację”. Przy każdym wydaniu zmień w `sw.js` wartość `CACHE`.
