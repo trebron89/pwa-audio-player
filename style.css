@@ -31,9 +31,6 @@ html, body {
 html, body { height: 100%; overflow: hidden; overscroll-behavior: none; }
 html { touch-action: manipulation; }
 body { position: fixed; inset: 0; display: flex; flex-direction: column; }
-/* W aplikacji z ekranu początkowego ciało sięga do samej dolnej krawędzi
-   (także pod wskaźnik Home) – inaczej iOS potrafi zostawić pustą przerwę. */
-@media (display-mode: standalone) { body { bottom: auto; height: 100vh; } }
 
 button, input, label.btn { font: inherit; color: inherit; }
 button { cursor: pointer; }
