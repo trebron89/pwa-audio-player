@@ -1,6 +1,6 @@
 'use strict';
 
-const VERSION = '2.3.1';
+const VERSION = '2.3.2';
 
 /* =========================================================
    Ikony
@@ -1779,6 +1779,15 @@ function renderPlaylist() {
   main.innerHTML = html;
 }
 
+function safeBottom() {
+  const el = document.createElement('div');
+  el.style.cssText = 'position:fixed;visibility:hidden;padding-bottom:env(safe-area-inset-bottom)';
+  document.body.appendChild(el);
+  const v = parseFloat(getComputedStyle(el).paddingBottom) || 0;
+  el.remove();
+  return Math.round(v);
+}
+
 async function renderSettings() {
   $('#viewTitle').textContent = 'Ustawienia';
   const est = navigator.storage?.estimate ? await navigator.storage.estimate().catch(() => null) : null;
@@ -1816,6 +1825,7 @@ async function renderSettings() {
     <section class="card">
       <h2>Diagnostyka</h2>
       <p>Tryb: <b>${standalone ? 'aplikacja z ekranu początkowego' : 'karta przeglądarki'}</b></p>
+      <p class="hint">Ekran: ${innerWidth}×${innerHeight} (fizycznie ${screen.width}×${screen.height}) · strefa dolna: ${safeBottom()} px · pasek: ${dock.offsetHeight} px, dół ${Math.round(dock.getBoundingClientRect().bottom)} px</p>
       <p class="hint">Wpisy „[tło] koniec” i zaraz po nich „[tło] gra” oznaczają, że następny utwór włączył się przy zablokowanym ekranie.</p>
       <pre id="log" class="log"></pre>
       <div class="row"><button class="btn" data-act="clear-log">Wyczyść dziennik</button></div>

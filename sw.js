@@ -1,7 +1,7 @@
 // Service worker: zapisuje pliki aplikacji, żeby działała offline.
 // Strategia: pliki aplikacji najpierw z sieci (aktualizacja od razu),
 // bez sieci z pamięci; ikony najpierw z pamięci.
-const CACHE = 'nplayer-v8';
+const CACHE = 'nplayer-v9';
 const ASSETS = [
   './',
   './index.html',

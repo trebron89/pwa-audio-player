@@ -31,6 +31,9 @@ html, body {
 html, body { height: 100%; overflow: hidden; overscroll-behavior: none; }
 html { touch-action: manipulation; }
 body { position: fixed; inset: 0; display: flex; flex-direction: column; }
+/* W aplikacji z ekranu początkowego ciało sięga do samej dolnej krawędzi
+   (także pod wskaźnik Home) – inaczej iOS potrafi zostawić pustą przerwę. */
+@media (display-mode: standalone) { body { bottom: auto; height: 100vh; } }
 
 button, input, label.btn { font: inherit; color: inherit; }
 button { cursor: pointer; }
@@ -187,7 +190,8 @@ body.is-playing .eq i { animation: eq .9s ease-in-out infinite alternate; }
 /* ---------- Dolny pasek ---------- */
 .dock {
   position: absolute; left: 0; right: 0; bottom: 0; z-index: 10;
-  padding: 10px 10px env(safe-area-inset-bottom);
+  /* Zakładki tuż nad wskaźnikiem Home (jak w natywnych aplikacjach), a nie nad całą strefą bezpieczną. */
+  padding: 8px 10px max(6px, calc(env(safe-area-inset-bottom) - 20px));
   background: linear-gradient(to top, var(--bg) 62%, rgba(9, 9, 14, 0));
 }
 .dock.no-track .mini { display: none; }
@@ -210,7 +214,7 @@ body.is-playing .eq i { animation: eq .9s ease-in-out infinite alternate; }
 .tabs { display: flex; max-width: 640px; margin: 0 auto; }
 .tabs button {
   flex: 1; display: flex; flex-direction: column; align-items: center; gap: 3px;
-  border: 0; background: none; padding: 6px 0 4px; font-size: 11px; font-weight: 650; color: var(--dim);
+  border: 0; background: none; padding: 4px 0 2px; font-size: 11px; font-weight: 650; color: var(--dim);
 }
 .tabs svg { width: 25px; height: 25px; }
 .tabs button.active { color: var(--text); }
